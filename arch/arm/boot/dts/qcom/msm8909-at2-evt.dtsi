@@ -1,0 +1,435 @@
+/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include "msm8909.dtsi"
+#include "msm8909-at2-pinctrl-v1.dtsi"
+// #include "components/camera/msm8909-e1m-evt-camera.dtsi"
+
+&tlmm_pinmux {
+	//FIH, Design specify pin ctrl for each driver
+	/include/ "components/pinctrl/pinctrl_at2_evb.dtsi"
+};
+
+&soc {
+	//AlanHZChang, add for memory hole setting
+	/include/ "components/memmap/memmap_e1m_evt.dtsi"
+	/include/ "components/fih/common_info_fao_v1.dtsi"
+
+	/* SW4-HL-Display-BringUpNT35521-00*{_20150224 */
+	/* Backlight Driver IC - RT4501 use GPIO10,11 as I2C SDA,SCL  */
+	i2c@78ba000 { /* BLSP1 QUP6 */ /* For Backlight/Boost IC */
+//		/include/ "components/display/backlight_rt4501_i2c_0x22.dtsi"
+		/include/ "components/display/boost_converter_nt50358_i2c_0x3e.dtsi"
+	};
+	/* SW4-HL-Display-BringUpNT35521-00*}_20150224 */
+
+	i2c@78b9000 { /* BLSP1 QUP5 */ /* For TouchPanel */
+	//	/include/ "components/touch/touch_synaptics_i2c_0x20_v0.dtsi"
+	//  /include/ "components/touch/touch_focaltech_i2c_0x38_v0.dtsi"
+	};
+
+	i2c@78b8000 { /* BLSP1 QUP4 */ /* For Charger IC */
+		/include/ "components/sensors/pressure_bmp280_i2c_0x76_v0.dtsi"
+	};
+
+	i2c@78b6000 { /* BLSP1 QUP2 */ /* For NFC */
+		/include/ "components/nfc/nfc_nxp_pn547_i2c_0x28_v0.dtsi"
+
+	};
+
+	i2c@78b5000 { /* BLSP1 QUP1 */ /* For Sensor */
+		/include/ "components/sensors/gsensor_bma2x2_i2c_0x10_v1.dtsi"
+		/include/ "components/sensors/ecompass_bmm050_i2c_0x12_v0.dtsi"
+	};
+
+  /*FIHTDCCode@Rayyou, 2017/3/6, add for E1M ACDB*/
+	fih_info_management {
+		acdbdir="E1M";
+	};
+  /*FIHTDCCode@Rayyou, 2017/3/6, add for E1M ACDB*/
+
+	gpio_keys {
+		compatible = "gpio-keys";
+		input-name = "gpio-keys";
+		pinctrl-names = "tlmm_gpio_key_active","tlmm_gpio_key_suspend";
+		pinctrl-0 = <&gpio_key_active>;
+		pinctrl-1 = <&gpio_key_suspend>;
+
+		vol_up {
+			label = "volume_up";
+			gpios = <&msm_gpio 90 0x1>;
+			linux,input-type = <1>;
+			linux,code = <115>;
+			gpio-key,wakeup;
+			debounce-interval = <15>;
+		};
+	};
+/*FIHTDCCode@AlanHZChang, 2015/3/16, add GPIO RED LED*/
+	gpio_leds {
+		compatible = "gpio-leds";
+		status = "okay";
+		pinctrl-names = "default";
+		pinctrl-0 = <&gpio_led_off>;
+		
+		red {
+				gpios = <&msm_gpio 24 0>;
+				label = "red";
+				linux,default-trigger = "none";
+				default-state = "keep";
+				retain-state-suspended;
+		};
+		green {
+				gpios = <&msm_gpio 22 0>;
+				label = "green";
+				linux,default-trigger = "none";
+				default-state = "keep";
+				retain-state-suspended;
+		};
+		blue {
+				gpios = <&msm_gpio 23 0>;
+				label = "blue";
+				linux,default-trigger = "none";
+				default-state = "keep";
+				retain-state-suspended;
+		};
+		
+	};
+/*FIHTDCCode@AlanHZChang, 2015/3/16, add GPIO RED LED*/
+	
+	usb_otg: usb@78d9000 {
+		interrupts = <0 134 0>,<0 140 0>,<0 136 0>;
+		interrupt-names = "core_irq", "async_irq", "phy_irq";
+		qcom,hsusb-otg-mode = <3>; /* OTG mode */
+		UETH_3p3-supply = <&pm8909_l11>;
+		qcom,platform-usb-ethernet-reset-gpio = <&msm_gpio 27 1>;
+	};
+
+	audio_codec: sound {
+		compatible = "qcom,msm8x16-audio-codec";
+		qcom,model = "msm8909-snd-card-e1m";
+		qcom,msm-snd-card-id = <0>;
+		qcom,msm-codec-type = "internal";
+		qcom,msm-ext-pa = "primary";
+		qcom,msm-mclk-freq = <9600000>;
+		qcom,msm-mbhc-hphl-swh = <1>;
+		qcom,msm-mbhc-gnd-swh = <0>;
+	  qcom,msm-spk-ext-pa = <&msm_gpio 92 0>;
+	  /*qcom,msm-hp-switch-en = <&msm_gpio 22 0>;*/
+		qcom,msm-hs-micbias-type = "internal";
+		qcom,msm-micbias1-ext-cap;
+		qcom,audio-routing =
+			"RX_BIAS", "MCLK",
+			"SPK_RX_BIAS", "MCLK",
+			"INT_LDO_H", "MCLK",
+			"MIC BIAS External", "Handset Mic",
+			"MIC BIAS Internal2", "Headset Mic",
+			"MIC BIAS External", "Secondary Mic",
+			"AMIC1", "MIC BIAS External",
+			"AMIC2", "MIC BIAS Internal2",
+			"AMIC3", "MIC BIAS External";
+		pinctrl-names = "cdc_lines_act",
+				"cdc_lines_sus",
+				"ear_ext_boost_act",
+				"ear_ext_boost_sus",
+				"ext_spk_gpio_act",
+				"ext_spk_gpio_sus",
+				"hp_switch_gpio_act",
+				"hp_switch_gpio_sus";
+		pinctrl-0 = <&cdc_pdm_lines_act>;
+		pinctrl-1 = <&cdc_pdm_lines_sus>;
+		pinctrl-2 = <&ear_ext_boost_act>;
+		pinctrl-3 = <&ear_ext_boost_sus>;
+	        pinctrl-4 = <&ext_spk_fih_act>;
+	        pinctrl-5 = <&ext_spk_fih_sus>;
+	        pinctrl-6 = <&hp_sw_fih_act>;
+	        pinctrl-7 = <&hp_sw_fih_sus>;
+		asoc-platform = <&pcm0>, <&pcm1>, <&voip>, <&voice>,
+				<&loopback>, <&compress>, <&hostless>,
+				<&afe>, <&lsm>, <&routing>, <&lpa>,
+				<&voice_svc>;
+		asoc-platform-names = "msm-pcm-dsp.0", "msm-pcm-dsp.1",
+				"msm-voip-dsp", "msm-pcm-voice", "msm-pcm-loopback",
+				"msm-compress-dsp", "msm-pcm-hostless", "msm-pcm-afe",
+				"msm-lsm-client", "msm-pcm-routing", "msm-pcm-lpa",
+				"msm-voice-svc";
+		asoc-cpu = <&dai_pri_auxpcm>, <&dai_hdmi>,
+				<&dai_mi2s0>, <&dai_mi2s1>, <&dai_mi2s2>, <&dai_mi2s3>,
+				<&sb_0_rx>, <&sb_0_tx>, <&sb_1_rx>, <&sb_1_tx>,
+				<&sb_3_rx>, <&sb_3_tx>, <&sb_4_rx>, <&sb_4_tx>,
+				<&bt_sco_rx>, <&bt_sco_tx>,<&bt_a2dp_rx>,
+                                <&int_fm_rx>, <&int_fm_tx>,
+				<&afe_pcm_rx>, <&afe_pcm_tx>, <&afe_proxy_rx>, <&afe_proxy_tx>,
+				<&incall_record_rx>, <&incall_record_tx>, <&incall_music_rx>,
+				<&incall_music_2_rx>;
+		asoc-cpu-names = "msm-dai-q6-auxpcm.1", "msm-dai-q6-hdmi.8",
+				"msm-dai-q6-mi2s.0", "msm-dai-q6-mi2s.1",
+				"msm-dai-q6-mi2s.2", "msm-dai-q6-mi2s.3",
+				"msm-dai-q6-dev.16384", "msm-dai-q6-dev.16385",
+				"msm-dai-q6-dev.16386", "msm-dai-q6-dev.16387",
+				"msm-dai-q6-dev.16390", "msm-dai-q6-dev.16391",
+				"msm-dai-q6-dev.16392", "msm-dai-q6-dev.16393",
+				"msm-dai-q6-dev.12288", "msm-dai-q6-dev.12289",
+				"msm-dai-q6-dev.12290", "msm-dai-q6-dev.12292",
+                                "msm-dai-q6-dev.12293", "msm-dai-q6-dev.224",
+				"msm-dai-q6-dev.225", "msm-dai-q6-dev.241",
+				"msm-dai-q6-dev.240", "msm-dai-q6-dev.32771",
+				"msm-dai-q6-dev.32772", "msm-dai-q6-dev.32773",
+                                "msm-dai-q6-dev.32770";
+		asoc-codec = <&stub_codec>, <&pm8909_conga_dig>;
+		asoc-codec-names = "msm-stub-codec.1", "tombak_codec";
+	};
+};
+//FihtdcCode@20150305 jason added for FAO LED design start 
+&spmi_bus {
+		qcom,pm8909@0 {
+				qcom,leds@a100 {
+							status = "okay";
+							qcom,led_mpp_2 {
+										label = "mpp";
+										linux,name = "pwmctl";
+										linux,default-trigger = "none";
+										qcom,default-state = "on";
+										qcom,max-current = <40>;
+										pwms = <&pm8909_pwm 0 0>;
+										qcom,current-setting = <5>;
+										qcom,id = <6>;
+										qcom,mode = "pwm";
+										qcom,source-sel = <0x8>;
+										qcom,mode-ctrl = <0x10>;
+										qcom,pwm-us = <1000>;
+										qcom,vin-ctrll = <0x3>;
+										qcom,in-order-command-processing;
+							};
+				};
+
+		};
+};
+&blsp1_uart1 {
+	status = "ok";
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart_console_sleep>;
+};
+
+/* SW4-HL-Display-BringUpNT35521-00+_20150224 */
+#include "components/display/dsi-panel-fih-nt35521-720p-video.dtsi"
+/* SW4-HL-Display-AddTianmaPanelHX8394DInsideSupport-00+_20150310 */
+#include "components/display/dsi-panel-fih-hx8394a-720p-video.dtsi"
+/* SW4-HL-Display-AddCTCPanelHX8394DInsideSupport-00+_20150317 */
+#include "components/display/dsi-panel-fih-hx8394d-720p-video.dtsi"
+/* SW4-HL-Display-AddCTCPanelHX8394FInsideSupport-00+_20150423 */
+#include "components/display/dsi-panel-fih-hx8394f-720p-video.dtsi"
+/* SW4-HL-Dispay-BringUpNT35521S_ForM378M379-00+_20151022 */
+#include "components/display/dsi-panel-fih-nt35521s-720p-video.dtsi"
+/* SW4-HL-Dispay-BringUpNT35521S_ForM378M379-02+_20151120 */
+#include "components/display/dsi-panel-fih-nt35521s-ng-720p-video.dtsi"
+/* E1M */
+#include "components/display/dsi-panel-fih-ft8716-720p-video.dtsi"
+#include "dsi-panel-sim-video.dtsi"
+
+&mdss_mdp {
+	qcom,mdss-pref-prim-intf = "dsi";
+};
+
+/* SW4-HL-Display-BringUpNT35521-00*{_20150224 */
+&dsi_nt35521_720_vid {
+	qcom,cont-splash-enabled;
+};
+
+/* SW4-HL-Display-AddTianmaPanelHX8394DInsideSupport-00+{_20150310 */
+&dsi_hx8394a_720_vid {
+	qcom,cont-splash-enabled;
+};
+/* SW4-HL-Display-AddTianmaPanelHX8394DInsideSupport-00+}_20150310 */
+
+/* SW4-HL-Display-AddCTCPanelHX8394DInsideSupport-00+{_20150317 */
+&dsi_hx8394d_720_vid {
+	qcom,cont-splash-enabled;
+};
+/* SW4-HL-Display-AddCTCPanelHX8394DInsideSupport-00+}_20150317 */
+
+/* SW4-HL-Display-AddCTCPanelHX8394FInsideSupport-00+{_20150423 */
+&dsi_hx8394f_720_vid {
+	qcom,cont-splash-enabled;
+};
+/* SW4-HL-Display-AddCTCPanelHX8394FInsideSupport-00+}_20150423 */
+
+/* SW4-HL-Dispay-BringUpNT35521S_ForM378M379-00+{_20151022 */
+&dsi_nt35521s_720_vid {
+	qcom,cont-splash-enabled;
+};
+/* SW4-HL-Dispay-BringUpNT35521S_ForM378M379-00+}_20151022 */
+
+/* SW4-HL-Dispay-BringUpNT35521S_ForM378M379-02+{_20151120 */
+&dsi_nt35521s_ng_720_vid {
+	qcom,cont-splash-enabled;
+};
+/* SW4-HL-Dispay-BringUpNT35521S_ForM378M379-02+}_20151120 */
+
+/* E1M{ */
+&dsi_ft8716_720_video {
+	qcom,cont-splash-enabled;
+};
+/* E1M} */
+
+&pmx_mdss {
+	qcom,num-grp-pins = <4>;
+	/*
+		GPIO25 -> Reset
+		GPIO88 -> IOVDD Enable
+		GPIO17 -> VPN(+5.5V) Enable
+		GPIO23 -> VNN(-5.5V) Enable
+	*/
+	qcom,pins = <&gp 25>, <&gp 88>, <&gp 17>, <&gp 23>;
+};
+/* SW4-HL-Display-BringUpNT35521-00*}_20150224 */
+
+&pmx_mdss_te {
+	qcom,num-grp-pins = <1>;
+	/*qcom,pins = <&gp 24>;*/
+};
+
+/* SW4-HL-Display-ConfigLcmId0AndLcmId1AsInputNoPull-00+{_20150511 */
+&pmx_mdss_id0id1 {
+	/*
+		GPIO83 -> LCM ID0
+		GPIO82 -> LCM ID1
+	*/
+	qcom,pins = <&gp 83>, <&gp 82>;
+	qcom,num-grp-pins = <2>;
+};
+/* SW4-HL-Display-ConfigLcmId0AndLcmId1AsInputNoPull-00+}_20150511 */
+
+/* SW4-HL-FixBacklightAlwaysShowMaximumBrightnessWhenResume-00*{_20150311 */
+&pmx_mdss_bl {
+	qcom,num-grp-pins = <1>;
+	/*
+		GPIO16 -> Backlight Enable
+	*/
+	qcom,pins = <&gp 16>;
+};
+/* SW4-HL-FixBacklightAlwaysShowMaximumBrightnessWhenResume-00*}_20150311 */
+
+&mdss_dsi0 {
+	qcom,dsi-pref-prim-pan = <&dsi_sim_vid>;
+	pinctrl-names = "mdss_default", "mdss_sleep";
+	pinctrl-0 = <&mdss_dsi_active &mdss_te_active &mdss_id0id1_active &mdss_bl_active>;			/* SW4-HL-FixBacklightAlwaysShowMaximumBrightnessWhenResume-00*_20150311 */	/* SW4-HL-Display-ConfigLcmId0AndLcmId1AsInputNoPull-00*_20150511 */
+	pinctrl-1 = <&mdss_dsi_suspend &mdss_te_suspend &mdss_id0id1_suspend &mdss_bl_suspend>;	/* SW4-HL-FixBacklightAlwaysShowMaximumBrightnessWhenResume-00*_20150311 */	/* SW4-HL-Display-ConfigLcmId0AndLcmId1AsInputNoPull-00*_20150511 */
+
+	qcom,platform-reset-gpio = <&msm_gpio 25 0>;
+
+	qcom,platform-vddio-gpio = <&msm_gpio 96 1>;		/* SW4-HL-Display-BringUpNT35521-00+_20150224 */
+	qcom,platform-avdd-gpio = <&msm_gpio 17 1>;		/* SW4-HL-Display-BringUpNT35521-00+_20150224 */
+	/*qcom,platform-avee-gpio = <&msm_gpio 23 1>;*/		/* SW4-HL-Display-BringUpNT35521-00+_20150224 */
+	qcom,platform-bklight-en-gpio = <&msm_gpio 16 0>;	/* SW4-HL-Dispay-BringUpNt35521sWithBlIcNt50568_ForD1M-00+_20160603 */
+};
+
+&qcom_rng {
+	status = "okay";
+};
+
+&qcom_crypto {
+	status = "okay";
+};
+
+&qcom_cedev {
+	status = "okay";
+};
+
+&qcom_seecom {
+	status = "okay";
+};
+
+&qcom_tzlog {
+	status = "okay";
+};
+
+&sdhc_1 {
+	vdd-supply = <&pm8909_l8>;
+	qcom,vdd-voltage-level = <2900000 2900000>;
+	qcom,vdd-current-level = <200 400000>;
+
+	vdd-io-supply = <&pm8909_l5>;
+	qcom,vdd-io-always-on;
+	qcom,vdd-io-lpm-sup;
+	qcom,vdd-io-voltage-level = <1800000 1800000>;
+	qcom,vdd-io-current-level = <200 60000>;
+
+	pinctrl-names = "active", "sleep";
+	pinctrl-0 = <&sdc1_clk_on &sdc1_cmd_on &sdc1_data_on>;
+	pinctrl-1 = <&sdc1_clk_off &sdc1_cmd_off &sdc1_data_off>;
+
+	qcom,bus-speed-mode = "HS200_1p8v", "DDR_1p8v";
+	qcom,nonremovable;
+
+	status = "ok";
+};
+
+&sdhc_2 {
+	 #address-cells = <0>;
+	interrupt-parent = <&sdhc_2>;
+	interrupts = <0 1 2>;
+	#interrupt-cells = <1>;
+	interrupt-map-mask = <0xffffffff>;
+	interrupt-map = <0 &intc 0 125 0
+			1 &intc 0 221 0
+			2 &msm_gpio 38 0>;
+	interrupt-names = "hc_irq", "pwr_irq", "status_irq";
+	cd-gpios = <&msm_gpio 38 0x1>;
+
+	vdd-supply = <&pm8909_l11>;
+	qcom,vdd-voltage-level = <1800000 2950000>;
+	qcom,vdd-current-level = <15000 400000>;
+
+	vdd-io-supply = <&pm8909_l12>;
+	qcom,vdd-io-voltage-level = <1800000 2950000>;
+	qcom,vdd-io-current-level = <200 50000>;
+
+	pinctrl-names = "active", "sleep";
+	pinctrl-0 = <&sdc2_clk_on &sdc2_cmd_on &sdc2_data_on &sdc2_cd_on>;
+	pinctrl-1 = <&sdc2_clk_off &sdc2_cmd_off &sdc2_data_off &sdc2_cd_off>;
+
+
+	status = "disabled";
+};
+
+/* CoreSight */
+&tpiu {
+	pinctrl-names = "seta-pctrl", "setb-pctrl", "sdcard", "trace",
+			"swduart", "swdtrc", "jtag", "spmi";
+	/* Mictor */
+	pinctrl-0 = <&seta_1 &seta_2 &seta_3 &seta_4 &seta_5 &seta_6 &seta_7
+		     &seta_8 &seta_9 &seta_10 &seta_11 &seta_12 &seta_13
+		     &seta_14 &seta_15 &seta_16 &seta_17 &seta_18>;
+	pinctrl-1 = <&setb_1 &setb_2 &setb_3 &setb_4 &setb_5 &setb_6 &setb_7
+		     &setb_8 &setb_9 &setb_10 &setb_11 &setb_12 &setb_13
+		     &setb_14 &setb_15 &setb_16 &setb_17 &setb_18>;
+	/* NIDnT */
+	pinctrl-2 = <&qdsd_clk_sdcard &qdsd_cmd_sdcard
+		    &qdsd_data0_sdcard &qdsd_data1_sdcard
+		    &qdsd_data2_sdcard &qdsd_data3_sdcard>;
+	pinctrl-3 = <&qdsd_clk_trace &qdsd_cmd_trace
+		    &qdsd_data0_trace &qdsd_data1_trace
+		    &qdsd_data2_trace &qdsd_data3_trace>;
+	pinctrl-4 = <&qdsd_cmd_swduart &qdsd_data0_swduart
+		    &qdsd_data1_swduart &qdsd_data2_swduart
+		    &qdsd_data3_swduart>;
+	pinctrl-5 = <&qdsd_clk_swdtrc &qdsd_cmd_swdtrc
+		    &qdsd_data0_swdtrc &qdsd_data1_swdtrc
+		    &qdsd_data2_swdtrc &qdsd_data3_swdtrc>;
+	pinctrl-6 = <&qdsd_cmd_jtag &qdsd_data0_jtag
+		    &qdsd_data1_jtag &qdsd_data2_jtag
+		    &qdsd_data3_jtag>;
+	pinctrl-7 = <&qdsd_clk_spmi &qdsd_cmd_spmi
+		    &qdsd_data0_spmi &qdsd_data3_spmi>;
+};
+
+
