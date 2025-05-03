@@ -1,7 +1,7 @@
 #ifndef __FIH_RAMTABLE_H
 #define __FIH_RAMTABLE_H
 
-#define FIH_RAM_BASE					0x8DC00000
+#define FIH_RAM_BASE					0x8DA00000
 #define FIH_RAM_SIZE					0x00700000
 #define FIH_RAM_SIZE_MB					7
  /* -------------------------------------------------------- */
