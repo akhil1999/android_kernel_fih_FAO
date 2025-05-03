@@ -10,7 +10,7 @@
 		linux,reserve-contiguous-region;
 		linux,reserve-region;
 		linux,remove-completely;
-		reg = <0x0 0x8E300000 0x0 0x00100000>;
+		reg = <0x0 0x8E200000 0x0 0x00100000>;
 		label = "pstore_reserve_mem";
 		};
 	};

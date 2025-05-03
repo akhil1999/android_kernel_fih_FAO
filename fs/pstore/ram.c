@@ -54,7 +54,7 @@ MODULE_PARM_DESC(ftrace_size, "size of ftrace log");
 
 //pstore reserved memory is defined in "arch\arm\boot\dts\qcom\msm8909-memory-pstore.dtsi"
 //static ulong mem_address;
-static ulong mem_address=0x8e300000;
+static ulong mem_address=0x8e200000;
 module_param(mem_address, ulong, 0400);
 MODULE_PARM_DESC(mem_address,
 		"start of reserved RAM used to store oops/panic logs");
