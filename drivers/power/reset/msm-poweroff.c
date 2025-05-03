@@ -217,12 +217,16 @@ static bool get_dload_mode(void)
 /* to support OEM apr */
 unsigned int restart_reason_rd(void)
 {
-	return readl(restart_reason);
+	if (restart_reason)
+		return readl(restart_reason);
+	else
+		return FIH_RERE_UNKNOWN_RESET;
 }
 
 void restart_reason_wt(unsigned int rere)
 {
-	__raw_writel(rere, restart_reason);
+	if (restart_reason)
+		__raw_writel(rere, restart_reason);
 }
 /* to support OEM apr */
 
