@@ -21,6 +21,9 @@ endif
 OBJCOPYFLAGS	:=-O binary -R .comment -S
 GZFLAGS		:=-9
 #KBUILD_CFLAGS	+=-pipe
+KBUILD_CFLAGS	+= -fno-pic -fno-pie
+KBUILD_AFLAGS	+= -fno-pic
+KBUILD_LDFLAGS	+= -no-pie
 
 # Never generate .eh_frame
 KBUILD_CFLAGS	+= $(call cc-option,-fno-dwarf2-cfi-asm)
