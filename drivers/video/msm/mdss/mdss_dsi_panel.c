@@ -39,8 +39,8 @@
 #define BBOX_BACKLIGHT_PWM_OPERATION_FAIL do {printk("BBox;%s: BL DCS cmd fail\n", __func__); printk("BBox::UEC;1::0\n");} while (0);
 
 //TP add
-extern void fih_fts_tp_lcm_resume(void);
-extern void fih_fts_tp_lcm_suspend(void);
+//extern void fih_fts_tp_lcm_resume(void);
+//extern void fih_fts_tp_lcm_suspend(void);
 //TP add end
 
 #define PANEL_REG_ADDR_LEN 8
@@ -1128,9 +1128,9 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	}
 	//SW4-HL-Display-FixShowBlackScreenAfterBootingIntoRecoveryMode-01*}_20150611
 /* E1M-576 - Add 720P Video panel */
-	if(ctrl->panel_data.panel_info.pid == FT8716_1080P_VIDEO_PANEL ||
-	    ctrl->panel_data.panel_info.pid == FT8716_720P_VIDEO_PANEL)
-	  fih_fts_tp_lcm_resume();
+//	if(ctrl->panel_data.panel_info.pid == FT8716_1080P_VIDEO_PANEL ||
+//	    ctrl->panel_data.panel_info.pid == FT8716_720P_VIDEO_PANEL)
+//	  fih_fts_tp_lcm_resume();
 /* end E1M-576 */
 
 end:
@@ -1259,9 +1259,9 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 	}
 
 /* E1M-576 - Add 720P Video panel */
-	if(ctrl->panel_data.panel_info.pid == FT8716_1080P_VIDEO_PANEL ||
-	    ctrl->panel_data.panel_info.pid == FT8716_720P_VIDEO_PANEL)
-	    fih_fts_tp_lcm_suspend();
+//	if(ctrl->panel_data.panel_info.pid == FT8716_1080P_VIDEO_PANEL ||
+//	    ctrl->panel_data.panel_info.pid == FT8716_720P_VIDEO_PANEL)
+//	    fih_fts_tp_lcm_suspend();
 /* end E1M-576 */
 
 	if (ctrl->off_cmds.cmd_cnt)

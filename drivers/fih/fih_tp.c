@@ -10,22 +10,22 @@ extern int Touch_TestResult;
 extern int TestResult_once;
 extern ssize_t txtotxshort(void);
 extern ssize_t fullRawCap(void);
-extern ssize_t touch_selftest(void);
+//extern ssize_t touch_selftest(void);
 extern int touch_fwver_read(char *);
 extern int touch_fwback_write(void);
 extern int touch_fwback_read(char *);
 extern int touch_fwimver_read(char *);
-extern void touch_e1m_fwimver_read(char *);
+//extern void touch_e1m_fwimver_read(char *);
 extern int touch_scover_write(int);
 extern int touch_upgrade_write(char *);
 extern int touch_upgrade_read(char *);
 extern int touch_vendor_read(char *);
-extern void touch_upgrade(int);
-extern void touch_tpfwver_read(char *);
+//extern void touch_upgrade(int);
+//extern void touch_tpfwver_read(char *);
 
-extern int read_register_result(void);
-extern void fts_fih_tp_rst(void);
-extern void fts_fih_tp_enable(int);
+//extern int read_register_result(void);
+//extern void fts_fih_tp_rst(void);
+//extern void fts_fih_tp_enable(int);
 
 #define FIH_PROC_PATH_TP_SMART_COVER  "AllHWList/tp_smart_cover"
 //touch start
@@ -62,11 +62,11 @@ static int fih_touch_proc_write(struct file *file, const char __user *buffer,
 	int ret =0;
 	pr_err("F@Touch Do Touch Selftest\n");
     //E1M
-    if ( fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_E1M ){
-        touch_selftest();
-    }
+//    if ( fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_E1M ){
+//        touch_selftest();
+//    }
     //FAO
-    else{
+//    else{
 	ret = txtotxshort();
 	ret = fullRawCap();
 	if(TestResult_once !=0)
@@ -74,7 +74,7 @@ static int fih_touch_proc_write(struct file *file, const char __user *buffer,
 		Touch_TestResult = 0;
 		TestResult_once =0;
 	}
-    }
+//    }
     
 	return count;
 }
@@ -95,13 +95,13 @@ static int fih_touch_read_fwver_show(struct seq_file *m, void *v)
 	int ret =0;
 	pr_err("F@Touch Read Touch firmware version\n");
 	//FIH read TP FW start
-	if ( fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_E1M ){
-	    touch_tpfwver_read(fwver);
-	}
-	else{
+//	if ( fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_E1M ){
+//	    touch_tpfwver_read(fwver);
+//	}
+//	else{
 	//FAO
 	    ret = touch_fwver_read(fwver);
-	}
+//	}
     
 	seq_printf(m, "%s", fwver);
 	return 0;
@@ -162,14 +162,14 @@ static int fih_touch_read_fwimver_show(struct seq_file *m, void *v)
 	char fwimver[30]={0};
 	int ret =0;
 	pr_err("F@Touch Read Touch firmware image version\n");
-	if ( fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_E1M ){
+//	if ( fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_E1M ){
 	//E1M
-	    touch_e1m_fwimver_read(fwimver);
-	}
-	else{
+//	    touch_e1m_fwimver_read(fwimver);
+//	}
+//	else{
 	//FAO
 	    ret = touch_fwimver_read(fwimver);
-	}
+//	}
 	seq_printf(m, "%s", fwimver);
 	return 0;
 }
@@ -262,7 +262,7 @@ static ssize_t fih_touch_alt_rst_proc_write(struct file *file, const char __user
                return -EINVAL;
        }
 
-       fts_fih_tp_rst();
+//       fts_fih_tp_rst();
        return count;
 }
 
@@ -279,7 +279,7 @@ static int fih_touch_alt_st_count_show(struct seq_file *m, void *v)
 {
        int count=0;
 
-       count = read_register_result();
+//       count = read_register_result();
        seq_printf(m, "%d", count);
 
        return 0;
@@ -318,7 +318,7 @@ static ssize_t fih_touch_alt_st_enable_proc_write(struct file *file, const char 
                return -EINVAL;
        }
 
-       fts_fih_tp_enable(input);
+//       fts_fih_tp_enable(input);
        return count;
 }
 static struct file_operations touch_alt_st_enable_file_ops = {
@@ -345,13 +345,13 @@ static int fih_touch_upgrade_proc_write(struct file *file, const char __user *bu
 	    return -EINVAL;
 	}
 	//E1M
-	if ( (fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_E1M )||( fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_AT2 )){
-	    touch_upgrade(input1);
-	}
-	else{
+//	if ( (fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_E1M )||( fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_AT2 )){
+//	    touch_upgrade(input1);
+//	}
+//	else{
 	//FAO
 	    ret = touch_upgrade_write(input);
-	}
+//	}
     
 	return count;
 }
