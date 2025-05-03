@@ -10,7 +10,7 @@
  * GNU General Public License for more details.
  */
 
-#include "msm8909.dtsi"
+#include "msm8909.dtsi_porting"
 #include "msm8909-fao-pinctrl-v1.dtsi"
 #include "components/camera/msm8909-fao-evb-camera.dtsi"
 

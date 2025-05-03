@@ -37,7 +37,8 @@ dtb-$(CONFIG_ARCH_MSM8909) += \
         msm8909-e1m-evb.dtb  \
         msm8909-e1m-evt.dtb  \
         msm8909-e1m-evt2.dtb  \
-        msm8909-at2-evt.dtb
+        msm8909-at2-evt.dtb \
+	msm8909-fao-ind-dvt.dtb 
 
 dtb-$(CONFIG_ARCH_MSM8916) += msm8916-cdp.dtb \
 	msm8916-cdp-smb1360.dtb \
