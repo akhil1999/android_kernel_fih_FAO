@@ -45,6 +45,7 @@
 #ifdef CONFIG_COMPAT
 #include <linux/compat.h>
 #endif
+#include <linux/miscdevice.h> //@20140605 add
 
 MODULE_DESCRIPTION("Diag Char Driver");
 MODULE_LICENSE("GPL v2");
@@ -2286,6 +2287,536 @@ static int diagchar_cleanup(void)
 	return 0;
 }
 
+//@20140605 add
+static int diagtest_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
+{
+		int err, ret = 0, pkt_type, token_offset = 0;
+		int remote_proc = 0;
+		uint8_t index;
+#ifdef DIAG_DEBUG
+		int length = 0, i;
+#endif
+		struct diag_send_desc_type send = { NULL, NULL, DIAG_STATE_START, 0 };
+		struct diag_hdlc_dest_type enc = { NULL, NULL, 0 };
+		void *buf_copy = NULL;
+		void *user_space_data = NULL;
+		unsigned int payload_size;
+
+ switch(count)
+ {
+  case 7:
+   printk(KERN_DEBUG"diagtest_write count:%i,%x %x %x %x %x %x %x",count,buf[0],buf[1],buf[2],buf[3],buf[4],buf[5],buf[6]);
+   break;
+  case 8:
+   printk(KERN_DEBUG"diagtest_write count:%i,%x %x %x %x %x %x %x %x",count,buf[0],buf[1],buf[2],buf[3],buf[4],buf[5],buf[6],buf[7]);
+   break;
+  case 10:
+   printk(KERN_DEBUG"diagtest_write count:%i,%x %x %x %x %x %x %x %x %x %x",count,buf[0],buf[1],buf[2],buf[3],buf[4],buf[5],buf[6],buf[7],buf[8],buf[9]);
+   break;
+  case 11:
+   printk(KERN_DEBUG"diagtest_write count:%i,%x %x %x %x %x %x %x %x %x %x %x",count,buf[0],buf[1],buf[2],buf[3],buf[4],buf[5],buf[6],buf[7],buf[8],buf[9],buf[10]);
+   break;
+  case 12:
+   printk(KERN_DEBUG"diagtest_write count:%i,%x %x %x %x %x %x %x %x %x %x %x %x",count,buf[0],buf[1],buf[2],buf[3],buf[4],buf[5],buf[6],buf[7],buf[8],buf[9],buf[10],buf[11]);
+   break;
+  case 14:
+   printk(KERN_DEBUG"diagtest_write count:%i,%x %x %x %x %x %x %x %x %x %x %x %x %x %x",count,buf[0],buf[1],buf[2],buf[3],buf[4],buf[5],buf[6],buf[7],buf[8],buf[9],buf[10],buf[11],buf[12],buf[13]);
+   break;
+  default:
+   printk(KERN_DEBUG"diagtest_write count:%i",count);
+ }
+
+		index = 0;
+		/* Get the packet type F3/log/event/Pkt response */
+		err = copy_from_user((&pkt_type), buf, 4);
+		/* First 4 bytes indicate the type of payload - ignore these */
+		if (count < 4) {
+			pr_err("diag: Client sending short data\n");
+			return -EBADMSG;
+		}
+		payload_size = count - 4;
+		if (payload_size > USER_SPACE_DATA) {
+			pr_err("diag: Dropping packet, packet payload size crosses 8KB limit. Current payload size %d\n",
+					payload_size);
+			driver->dropped_count++;
+			return -EBADMSG;
+		}
+#if 0//genesis
+#ifdef CONFIG_DIAG_OVER_USB
+		if (((pkt_type != DCI_DATA_TYPE) && (driver->logging_mode == USB_MODE)
+					&& (!driver->usb_connected)) ||
+					(driver->logging_mode == NO_LOGGING_MODE)) {
+			/*Drop the diag payload */
+			return -EIO;
+		}
+#endif /* DIAG over USB */
+#endif
+		if (pkt_type == DCI_DATA_TYPE) {
+			user_space_data = diagmem_alloc(driver, payload_size,
+									POOL_TYPE_USER);
+			if (!user_space_data) {
+				driver->dropped_count++;
+				return -ENOMEM;
+			}
+			err = copy_from_user(user_space_data, buf + 4, payload_size);
+			if (err) {
+				pr_alert("diag: copy failed for DCI data\n");
+				diagmem_free(driver, user_space_data, POOL_TYPE_USER);
+				user_space_data = NULL;
+				return DIAG_DCI_SEND_DATA_FAIL;
+			}
+			err = diag_process_dci_transaction(user_space_data,
+								payload_size);
+			diagmem_free(driver, user_space_data, POOL_TYPE_USER);
+			user_space_data = NULL;
+			return err;
+		}
+		if (pkt_type == CALLBACK_DATA_TYPE) {
+			if (payload_size > itemsize) {
+				pr_err("diag: Dropping packet, packet payload size crosses 4KB limit. Current payload size %d\n",
+					payload_size);
+				driver->dropped_count++;
+				return -EBADMSG;
+			}
+
+			mutex_lock(&driver->diagchar_mutex);
+			buf_copy = diagmem_alloc(driver, payload_size, POOL_TYPE_COPY);
+			if (!buf_copy) {
+				driver->dropped_count++;
+				mutex_unlock(&driver->diagchar_mutex);
+				return -ENOMEM;
+			}
+
+			err = copy_from_user(buf_copy, buf + 4, payload_size);
+			if (err) {
+				pr_err("diag: copy failed for user space data\n");
+				ret = -EIO;
+				goto fail_free_copy;
+			}
+			/* Check for proc_type */
+			remote_proc = diag_get_remote(*(int *)buf_copy);
+
+			if (!remote_proc) {
+				wait_event_interruptible(driver->wait_q,
+					 (driver->in_busy_pktdata == 0));
+				ret = diag_process_apps_pkt(buf_copy, payload_size);
+				goto fail_free_copy;
+			}
+			/* The packet is for the remote processor */
+			token_offset = 4;
+			payload_size -= 4;
+			buf += 4;
+			/* Perform HDLC encoding on incoming data */
+			send.state = DIAG_STATE_START;
+			send.pkt = (void *)(buf_copy + token_offset);
+			send.last = (void *)(buf_copy + token_offset -
+								1 + payload_size);
+			send.terminate = 1;
+
+
+			if (!buf_hdlc)
+				buf_hdlc = diagmem_alloc(driver, HDLC_OUT_BUF_SIZE,
+								POOL_TYPE_HDLC);
+			if (!buf_hdlc) {
+				ret = -ENOMEM;
+				driver->used = 0;
+				goto fail_free_copy;
+			}
+			if (HDLC_OUT_BUF_SIZE < (2 * payload_size) + 3) {
+				pr_err("diag: Dropping packet, HDLC encoded packet payload size crosses buffer limit. Current payload size %d\n",
+						((2*payload_size) + 3));
+				driver->dropped_count++;
+				ret = -EBADMSG;
+				goto fail_free_hdlc;
+			}
+			enc.dest = buf_hdlc + driver->used;
+			enc.dest_last = (void *)(buf_hdlc + driver->used +
+						(2 * payload_size) + token_offset - 1);
+			diag_hdlc_encode(&send, &enc);
+
+#ifdef CONFIG_DIAG_SDIO_PIPE
+			/* send masks to 9k too */
+			if (driver->sdio_ch && (remote_proc == MDM)) {
+				wait_event_interruptible(driver->wait_q,
+					 (sdio_write_avail(driver->sdio_ch) >=
+						 payload_size));
+				if (driver->sdio_ch && (payload_size > 0)) {
+					sdio_write(driver->sdio_ch, (void *)
+					   (char *)buf_hdlc, payload_size + 3);
+				}
+			}
+#endif
+#ifdef CONFIG_DIAGFWD_BRIDGE_CODE
+			/* send masks to All 9k */
+			if ((remote_proc >= MDM) && (remote_proc <= MDM4)) {
+				index = remote_proc - MDM;
+				if (diag_hsic[index].hsic_ch && (payload_size > 0)) {
+					/* wait sending mask updates
+					 * if HSIC ch not ready */
+					while (diag_hsic[index].in_busy_hsic_write) {
+						wait_event_interruptible(driver->wait_q,
+							(diag_hsic[index].
+							 in_busy_hsic_write != 1));
+					}
+					diag_hsic[index].in_busy_hsic_write = 1;
+					diag_hsic[index].in_busy_hsic_read_on_device =
+										0;
+					err = diag_bridge_write(index,
+						(char *)buf_hdlc, payload_size + 3);
+					if (err) {
+						pr_err("diag: err sending mask to MDM: %d\n",
+							   err);
+						/*
+						* If the error is recoverable, then
+						* clear the write flag, so we will
+						* resubmit a write on the next frame.
+						* Otherwise, don't resubmit a write
+						* on the next frame.
+						*/
+						if ((-ESHUTDOWN) != err)
+							diag_hsic[index].
+								in_busy_hsic_write = 0;
+					 }
+				 }
+			}
+			if (driver->diag_smux_enabled && (remote_proc == QSC)
+							&& driver->lcid) {
+				if (payload_size > 0) {
+					err = msm_smux_write(driver->lcid, NULL,
+						(char *)buf_hdlc, payload_size + 3);
+					if (err) {
+						pr_err("diag:send mask to MDM err %d",
+								err);
+						ret = err;
+					}
+				}
+			}
+#endif
+			goto fail_free_hdlc;
+		}
+		if (pkt_type == USER_SPACE_DATA_TYPE) {
+			user_space_data = diagmem_alloc(driver, payload_size,
+									POOL_TYPE_USER);
+			if (!user_space_data) {
+				driver->dropped_count++;
+				return -ENOMEM;
+			}
+			err = copy_from_user(user_space_data, buf + 4,
+								 payload_size);
+			if (err) {
+				pr_err("diag: copy failed for user space data\n");
+				diagmem_free(driver, user_space_data, POOL_TYPE_USER);
+				user_space_data = NULL;
+				return -EIO;
+			}
+			/* Check for proc_type */
+			remote_proc = diag_get_remote(*(int *)user_space_data);
+
+			if (remote_proc) {
+				token_offset = 4;
+				payload_size -= 4;
+				buf += 4;
+			}
+
+			/* Check masks for On-Device logging */
+			if (driver->mask_check) {
+				if (!mask_request_validate(user_space_data +
+								 token_offset)) {
+					pr_alert("diag: mask request Invalid\n");
+					diagmem_free(driver, user_space_data,
+								POOL_TYPE_USER);
+					user_space_data = NULL;
+					return -EFAULT;
+				}
+			}
+			buf = buf + 4;
+#ifdef DIAG_DEBUG
+			pr_debug("diag: user space data %d\n", payload_size);
+			for (i = 0; i < payload_size; i++)
+				pr_debug("\t %x", *((user_space_data
+							+ token_offset)+i));
+#endif
+#ifdef CONFIG_DIAG_SDIO_PIPE
+			/* send masks to 9k too */
+			if (driver->sdio_ch && (remote_proc == MDM)) {
+				wait_event_interruptible(driver->wait_q,
+					 (sdio_write_avail(driver->sdio_ch) >=
+						 payload_size));
+				if (driver->sdio_ch && (payload_size > 0)) {
+					sdio_write(driver->sdio_ch, (void *)
+					   (user_space_data + token_offset),
+					   payload_size);
+				}
+			}
+#endif
+#ifdef CONFIG_DIAGFWD_BRIDGE_CODE
+			/* send masks to All 9k */
+			if ((remote_proc >= MDM) && (remote_proc <= MDM4) &&
+								(payload_size > 0)) {
+				index = remote_proc - MDM;
+				/*
+				 * If hsic data is being requested for this remote
+				 * processor and its hsic in not open
+				 */
+				if (!diag_hsic[index].hsic_device_opened) {
+					diag_hsic[index].hsic_data_requested = 1;
+					connect_bridge(0, index);
+				}
+
+				if (diag_hsic[index].hsic_ch) {
+					/* wait sending mask updates
+					 * if HSIC ch not ready */
+					while (diag_hsic[index].in_busy_hsic_write) {
+						wait_event_interruptible(driver->wait_q,
+							(diag_hsic[index].
+							 in_busy_hsic_write != 1));
+					}
+					diag_hsic[index].in_busy_hsic_write = 1;
+					diag_hsic[index].in_busy_hsic_read_on_device =
+										0;
+					err = diag_bridge_write(index,
+							user_space_data + token_offset,
+							payload_size);
+					if (err) {
+						pr_err("diag: err sending mask to MDM: %d\n",
+							   err);
+						/*
+						* If the error is recoverable, then
+						* clear the write flag, so we will
+						* resubmit a write on the next frame.
+						* Otherwise, don't resubmit a write
+						* on the next frame.
+						*/
+						if ((-ESHUTDOWN) != err)
+							diag_hsic[index].
+								in_busy_hsic_write = 0;
+					 }
+				 }
+			}
+			if (driver->diag_smux_enabled && (remote_proc == QSC)
+							&& driver->lcid) {
+				if (payload_size > 0) {
+					err = msm_smux_write(driver->lcid, NULL,
+						user_space_data + token_offset,
+						payload_size);
+					if (err) {
+						pr_err("diag:send mask to MDM err %d",
+								err);
+						diagmem_free(driver, user_space_data,
+									POOL_TYPE_USER);
+						user_space_data = NULL;
+						return err;
+					}
+				}
+			}
+#endif
+			/* send masks to 8k now */
+			if (!remote_proc)
+				diag_process_hdlc((void *)
+					(user_space_data + token_offset), payload_size);
+			diagmem_free(driver, user_space_data, POOL_TYPE_USER);
+			user_space_data = NULL;
+			return 0;
+		}
+
+		if (payload_size > itemsize) {
+			pr_err("diag: Dropping packet, packet payload size crosses"
+					"4KB limit. Current payload size %d\n",
+					payload_size);
+			driver->dropped_count++;
+			printk(KERN_DEBUG"diagtest_write- 26r");
+			return -EBADMSG;
+		}
+
+		mutex_lock(&driver->diagchar_mutex);
+		buf_copy = diagmem_alloc(driver, payload_size, POOL_TYPE_COPY);
+		if (!buf_copy) {
+			driver->dropped_count++;
+			mutex_unlock(&driver->diagchar_mutex);
+			printk(KERN_DEBUG"diagtest_write- 27r");
+			return -ENOMEM;
+		}
+
+		err = copy_from_user(buf_copy, buf + 4, payload_size);
+		if (err) {
+			printk(KERN_INFO "diagchar : copy_from_user failed\n");
+			ret = -EFAULT;
+			goto fail_free_copy;
+		}
+		if (driver->stm_state[APPS_DATA] &&
+			(pkt_type >= DATA_TYPE_EVENT && pkt_type <= DATA_TYPE_LOG)) {
+			int stm_size = 0;
+
+			stm_size = stm_log_inv_ts(OST_ENTITY_DIAG, 0, buf_copy,
+							payload_size);
+
+			if (stm_size == 0)
+				pr_debug("diag: In %s, stm_log_inv_ts returned size of 0\n",
+					__func__);
+
+			diagmem_free(driver, buf_copy, POOL_TYPE_COPY);
+			printk(KERN_DEBUG"diagtest_write- 28r");
+			return 0;
+		}
+
+#ifdef DIAG_DEBUG
+		printk(KERN_DEBUG "data is -->\n");
+		for (i = 0; i < payload_size; i++)
+			printk(KERN_DEBUG "\t %x \t", *(((unsigned char *)buf_copy)+i));
+#endif
+		send.state = DIAG_STATE_START;
+		send.pkt = buf_copy;
+		send.last = (void *)(buf_copy + payload_size - 1);
+		send.terminate = 1;
+#ifdef DIAG_DEBUG
+		pr_debug("diag: Already used bytes in buffer %d, and"
+		" incoming payload size is %d\n", driver->used, payload_size);
+		printk(KERN_DEBUG "hdlc encoded data is -->\n");
+		for (i = 0; i < payload_size + 8; i++) {
+			printk(KERN_DEBUG "\t %x \t", *(((unsigned char *)buf_hdlc)+i));
+			if (*(((unsigned char *)buf_hdlc)+i) != 0x7e)
+				length++;
+		}
+#endif
+		if (!buf_hdlc)
+			buf_hdlc = diagmem_alloc(driver, HDLC_OUT_BUF_SIZE,
+							 POOL_TYPE_HDLC);
+		if (!buf_hdlc) {
+			ret = -ENOMEM;
+			driver->used = 0;
+			goto fail_free_copy;
+		}
+		if (HDLC_OUT_BUF_SIZE < (2*payload_size) + 3) {
+			pr_err("diag: Dropping packet, HDLC encoded packet payload size crosses buffer limit. Current payload size %d\n",
+					((2*payload_size) + 3));
+			driver->dropped_count++;
+			ret = -EBADMSG;
+			goto fail_free_hdlc;
+		}
+		if (HDLC_OUT_BUF_SIZE - driver->used <= (2*payload_size) + 3) {
+			//err = diag_device_write(buf_hdlc, APPS_DATA, NULL);
+			err = diag_mux_write(DIAG_LOCAL_PROC, buf_hdlc, driver->used,
+				     buf_hdlc_ctxt);
+			if (err) {
+				ret = -EIO;
+				goto fail_free_hdlc;
+			}
+			buf_hdlc = NULL;
+			driver->used = 0;
+			buf_hdlc = diagmem_alloc(driver, HDLC_OUT_BUF_SIZE,
+								 POOL_TYPE_HDLC);
+			if (!buf_hdlc) {
+				ret = -ENOMEM;
+				goto fail_free_copy;
+			}
+		}
+
+		enc.dest = buf_hdlc + driver->used;
+		enc.dest_last = (void *)(buf_hdlc + driver->used + 2*payload_size + 3);
+		diag_hdlc_encode(&send, &enc);
+
+		/* This is to check if after HDLC encoding, we are still within the
+		 limits of aggregation buffer. If not, we write out the current buffer
+		and start aggregation in a newly allocated buffer */
+		if ((unsigned int) enc.dest >=
+			 (unsigned int)(buf_hdlc + HDLC_OUT_BUF_SIZE)) {
+			//err = diag_device_write(buf_hdlc, APPS_DATA, NULL);
+			err = diag_mux_write(DIAG_LOCAL_PROC, buf_hdlc, driver->used,
+				     buf_hdlc_ctxt);
+			if (err) {
+				ret = -EIO;
+				goto fail_free_hdlc;
+			}
+			buf_hdlc = NULL;
+			driver->used = 0;
+			buf_hdlc = diagmem_alloc(driver, HDLC_OUT_BUF_SIZE,
+								 POOL_TYPE_HDLC);
+			if (!buf_hdlc) {
+				ret = -ENOMEM;
+				goto fail_free_copy;
+			}
+			enc.dest = buf_hdlc + driver->used;
+			enc.dest_last = (void *)(buf_hdlc + driver->used +
+								 (2*payload_size) + 3);
+			diag_hdlc_encode(&send, &enc);
+		}
+
+		driver->used = (uint32_t) enc.dest - (uint32_t) buf_hdlc;
+		if (pkt_type == DATA_TYPE_RESPONSE) {
+			//err = diag_device_write(buf_hdlc, APPS_DATA, NULL);
+			err = diag_mux_write(DIAG_LOCAL_PROC, buf_hdlc, driver->used,
+				     buf_hdlc_ctxt);
+			if (err) {
+				ret = -EIO;
+				goto fail_free_hdlc;
+			}
+			buf_hdlc = NULL;
+			driver->used = 0;
+		}
+
+		diagmem_free(driver, buf_copy, POOL_TYPE_COPY);
+		buf_copy = NULL;
+		mutex_unlock(&driver->diagchar_mutex);
+		if (!timer_in_progress) {
+			timer_in_progress = 1;
+			ret = mod_timer(&drain_timer, jiffies + msecs_to_jiffies(500));
+		}
+		printk(KERN_DEBUG"diagtest_write- 29r");
+		return 0;
+
+	fail_free_hdlc:
+		diagmem_free(driver, buf_hdlc, POOL_TYPE_HDLC);
+		buf_hdlc = NULL;
+		driver->used = 0;
+		diagmem_free(driver, buf_copy, POOL_TYPE_COPY);
+		buf_copy = NULL;
+		mutex_unlock(&driver->diagchar_mutex);
+		ret=count;
+		printk(KERN_DEBUG"diagtest_write- 30r %i",ret);
+		return ret;
+
+	fail_free_copy:
+		diagmem_free(driver, buf_copy, POOL_TYPE_COPY);
+		buf_copy = NULL;
+		mutex_unlock(&driver->diagchar_mutex);
+        ret=count;
+		printk(KERN_DEBUG"diagtest_write- %i",ret);
+		return ret;
+}
+
+static int diagtest_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
+{
+	printk(KERN_DEBUG"diagtest_read count:%i",count);
+	return 0;
+}
+
+static int diagtest_open(struct inode *inode, struct file *file)
+{
+	printk(KERN_DEBUG"diagtest_open");
+	return 0;
+}
+
+static int diagtest_release(struct inode *inode, struct file *file)
+{
+	printk(KERN_DEBUG"diagtest_release");
+	return 0;
+}
+
+static const struct file_operations diagsmdfops = {
+       .owner = THIS_MODULE,
+       .read = diagtest_read,
+       .write = diagtest_write,
+       .open = diagtest_open,
+       .release = diagtest_release
+};
+
+struct miscdevice diagtest = {
+       .minor = MISC_DYNAMIC_MINOR,
+       .name = "diagtest",
+       .fops = &diagsmdfops,
+};
+//~@20140605
+
 static int __init diagchar_init(void)
 {
 	dev_t dev;
@@ -2388,6 +2919,8 @@ static int __init diagchar_init(void)
 	error = diagchar_setup_cdev(dev);
 	if (error)
 		goto fail;
+
+	misc_register(&diagtest); //JOVI@20140605 add
 
 	pr_debug("diagchar initialized now");
 	return 0;

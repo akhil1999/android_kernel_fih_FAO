@@ -23,6 +23,8 @@
 #include <linux/regulator/consumer.h>
 #include <linux/leds-qpnp-wled.h>
 #include <linux/clk.h>
+#include <linux/platform_data/boost_fp7720.h>	//SW4-HL-Display-ImplementBoostConverterDriver-00+_20150630
+#include <linux/platform_data/boost_nt50358.h>	//E1M
 
 #include "mdss.h"
 #include "mdss_panel.h"
@@ -30,6 +32,56 @@
 #include "mdss_debug.h"
 
 #define XO_CLK_RATE	19200000
+
+//SW4-HL-Display-BBox-00+{_20150610
+/* Black Box */
+#define BBOX_PANEL_GPIO_FAIL do {printk("BBox;%s: GPIO fail\n", __func__); printk("BBox::UEC;0::1\n");} while (0);
+//SW4-HL-Display-BBox-00+}_20150610
+
+//SW4-HL-Display-BringUpNT35521-00+{_20150224
+static struct mdss_dsi_ctrl_pdata *gpdata  = NULL;
+static struct class *lcd_class;
+
+//SW4-HL-Display-EnablePWMOutput-00*{_20150605
+unsigned long ce_en = 0;
+unsigned long ct_set = 0;
+unsigned long cabc_set = 0;
+//SW4-HL-Display-EnablePWMOutput-00*}_20150605
+
+//SW4-HL-Display-PowerPinControlPinAndInitCodeAPI-00+{_20150519
+static unsigned long vddio_set = 0;
+static unsigned long avdd_set = 0;
+static unsigned long avee_set = 0;
+static unsigned long reset_set = 0;
+static unsigned long init_set = 0;
+static unsigned long ldos_set = 0;
+//SW4-HL-Display-PowerPinControlPinAndInitCodeAPI-00+}_20150519
+
+int CE_enable = 0;
+int CT_enable = 0;
+int CABC_enable = 0;
+//SW4-HL-Display-BringUpNT35521-00+}_20150224
+
+//SW4-HL-Display-EnablePWMOutput-00+{_20150605
+int SendCEOnlyAfterResume = 0;
+int SendCTOnlyAfterResume = 0;
+int SendCABCOnlyAfterResume = 0;
+//SW4-HL-Display-EnablePWMOutput-00+}_20150605
+
+
+//SW4-HL-Display-PowerPinControlPinAndInitCodeAPI-00+{_20150519
+int vddio_enable = 0;
+int avdd_enable = 0;
+int avee_enable = 0;
+//SW4-HL-Display-PowerPinControlPinAndInitCodeAPI-00+}_20150519
+
+/* E1M-4489 - Add SVI(AIE) setting */
+int SVI_enable = 0;
+unsigned long svi_set = 0;
+/* end E1M-4489 */
+
+//SW4-HL-FixKernelPanicWhenBootingIntoOS-00+_20150514
+extern bool gInSplashScreen;
 
 static int mdss_dsi_pinctrl_set_state(struct mdss_dsi_ctrl_pdata *ctrl_pdata,
 					bool active);
@@ -76,6 +128,8 @@ static int mdss_dsi_panel_power_off(struct mdss_panel_data *pdata)
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
 	int i = 0;
 
+	pr_debug("\n\n******************** [HL] %s +++ **********************\n\n", __func__);
+
 	if (pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
 		ret = -EINVAL;
@@ -90,6 +144,45 @@ static int mdss_dsi_panel_power_off(struct mdss_panel_data *pdata)
 		pr_warn("%s: Panel reset failed. rc=%d\n", __func__, ret);
 		ret = 0;
 	}
+
+	//SW4-HL-Display-BringUpNT35521-01*{_20150224
+	pr_debug("\n\n******************** [HL] %s, switch (ctrl_pdata->panel_data.panel_info.pid = %d)  **********************\n\n", __func__, ctrl_pdata->panel_data.panel_info.pid);
+	switch (ctrl_pdata->panel_data.panel_info.pid)
+	{
+		case NT35521_720P_VIDEO_PANEL:
+		case HX8394A_720P_VIDEO_PANEL:		//SW4-HL-Display-AddTianmaPanelHX8394DInsideSupport-00+_20150310
+		case HX8394D_720P_VIDEO_PANEL:		//SW4-HL-Display-AddCTCPanelHX8394DInsideSupport-00+_20150317
+		case HX8394F_720P_VIDEO_PANEL:		//SW4-HL-Display-AddCTCPanelHX8394FInsideSupport-00+_20150423
+		case NT35521S_720P_VIDEO_PANEL:		//SW4-HL-Dispay-BringUpNT35521S_ForM378M379-00+_20151022
+		case NT35521S_NG_720P_VIDEO_PANEL:	//SW4-HL-Dispay-BringUpNT35521S_ForM378M379-02+_20151120
+		case NT35521S_INNO_720P_VIDEO_PANEL://SW4-HL-Dispay-BringUpNt35521sWithBlIcNt50568_ForD1M-00+_20160603
+		case FT8716_1080P_VIDEO_PANEL:	//E1M
+		case FT8716_720P_VIDEO_PANEL:	/* E1M-576 - Add 720P Video panel */
+			{
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->avee_gpio = %d  **********************\n\n", __func__, ctrl_pdata->avee_gpio);
+				gpio_set_value(ctrl_pdata->avee_gpio, 0);
+				gpio_free(ctrl_pdata->avee_gpio);
+
+				mdelay(2);
+
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->avdd_gpio = %d  **********************\n\n", __func__, ctrl_pdata->avdd_gpio);
+				gpio_set_value(ctrl_pdata->avdd_gpio, 0);
+				gpio_free(ctrl_pdata->avdd_gpio);
+
+				mdelay(10);
+
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->vddio_gpio = %d  **********************\n\n", __func__, ctrl_pdata->vddio_gpio);
+				gpio_set_value(ctrl_pdata->vddio_gpio, 0);
+				gpio_free(ctrl_pdata->vddio_gpio);
+			}
+			break;
+		default:
+			{
+				pr_debug("\n\n******************** [HL] %s, default  **********************\n\n", __func__);
+			}
+			break;
+	}
+	//SW4-HL-Display-BringUpNT35521-01*}_20150224
 
 	if (mdss_dsi_pinctrl_set_state(ctrl_pdata, false))
 		pr_debug("reset disable: pinctrl not enabled\n");
@@ -119,6 +212,8 @@ static int mdss_dsi_panel_power_off(struct mdss_panel_data *pdata)
 	}
 
 end:
+	pr_debug("\n\n******************** [HL] %s ---, ret = %d **********************\n\n", __func__, ret);
+
 	return ret;
 }
 
@@ -127,6 +222,8 @@ static int mdss_dsi_panel_power_on(struct mdss_panel_data *pdata)
 	int ret = 0;
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
 	int i = 0;
+
+	pr_debug("\n\n******************** [HL] %s +++ **********************\n\n", __func__);
 
 	if (pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
@@ -163,6 +260,205 @@ static int mdss_dsi_panel_power_on(struct mdss_panel_data *pdata)
 
 	i--;
 
+	//SW4-HL-Display-BringUpNT35521-00+{_20150224
+	pr_debug("\n\n******************** [HL] %s, switch (ctrl_pdata->panel_data.panel_info.pid = %d)  **********************\n\n", __func__, ctrl_pdata->panel_data.panel_info.pid);
+	switch (ctrl_pdata->panel_data.panel_info.pid)
+	{
+		case NT35521_720P_VIDEO_PANEL:
+		case NT35521S_720P_VIDEO_PANEL:		//SW4-HL-Dispay-BringUpNT35521S_ForM378M379-00+_20151022
+		case NT35521S_NG_720P_VIDEO_PANEL:	//SW4-HL-Dispay-BringUpNT35521S_ForM378M379-02+_20151120
+		case NT35521S_INNO_720P_VIDEO_PANEL://SW4-HL-Dispay-BringUpNt35521sWithBlIcNt50568_ForD1M-00+_20160603
+			{
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->vddio_gpio = %d  **********************\n\n", __func__, ctrl_pdata->vddio_gpio);
+				if (gpio_request(ctrl_pdata->vddio_gpio, "disp_vddio_n")) {
+					pr_err("%s:request vddio gpio failed\n", __func__);
+					BBOX_PANEL_GPIO_FAIL
+					gpio_free(ctrl_pdata->vddio_gpio);
+					return -ENODEV;
+				}
+				gpio_set_value(ctrl_pdata->vddio_gpio, 1);
+
+				msleep(2);
+
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->avdd_gpio = %d  **********************\n\n", __func__, ctrl_pdata->avdd_gpio);
+				if (gpio_request(ctrl_pdata->avdd_gpio, "disp_avdd_n")) {
+					pr_err("%s:request avdd gpio failed\n", __func__);
+					BBOX_PANEL_GPIO_FAIL
+					gpio_free(ctrl_pdata->avdd_gpio);
+					return -ENODEV;
+				}
+				gpio_set_value(ctrl_pdata->avdd_gpio, 1);
+
+				msleep(2);
+
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->avee_gpio = %d  **********************\n\n", __func__, ctrl_pdata->avee_gpio);
+				if (gpio_request(ctrl_pdata->avee_gpio, "disp_avee_n")) {
+					pr_err("%s:request avee gpio failed\n", __func__);
+					BBOX_PANEL_GPIO_FAIL
+					gpio_free(ctrl_pdata->avee_gpio);
+					return -ENODEV;
+				}
+				gpio_set_value(ctrl_pdata->avee_gpio, 1);
+
+				msleep(40);
+			}
+			break;
+		case HX8394A_720P_VIDEO_PANEL:	//SW4-HL-Display-AddTianmaPanelHX8394DInsideSupport-00+_20150310
+		case HX8394D_720P_VIDEO_PANEL:	//SW4-HL-Display-AddCTCPanelHX8394DInsideSupport-00+{_20150317
+			{
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->vddio_gpio = %d  **********************\n\n", __func__, ctrl_pdata->vddio_gpio);
+				if (gpio_request(ctrl_pdata->vddio_gpio, "disp_vddio_n")) {
+					pr_err("%s:request vddio gpio failed\n", __func__);
+					BBOX_PANEL_GPIO_FAIL
+					gpio_free(ctrl_pdata->vddio_gpio);
+					return -ENODEV;
+				}
+				gpio_set_value(ctrl_pdata->vddio_gpio, 1);
+
+				msleep(2);
+
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->avdd_gpio = %d  **********************\n\n", __func__, ctrl_pdata->avdd_gpio);
+				if (gpio_request(ctrl_pdata->avdd_gpio, "disp_avdd_n")) {
+					pr_err("%s:request avdd gpio failed\n", __func__);
+					BBOX_PANEL_GPIO_FAIL
+					gpio_free(ctrl_pdata->avdd_gpio);
+					return -ENODEV;
+				}
+				gpio_set_value(ctrl_pdata->avdd_gpio, 1);
+
+				msleep(2);
+
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->avee_gpio = %d  **********************\n\n", __func__, ctrl_pdata->avee_gpio);
+				if (gpio_request(ctrl_pdata->avee_gpio, "disp_avee_n")) {
+					pr_err("%s:request avee gpio failed\n", __func__);
+					BBOX_PANEL_GPIO_FAIL
+					gpio_free(ctrl_pdata->avee_gpio);
+					return -ENODEV;
+				}
+				gpio_set_value(ctrl_pdata->avee_gpio, 1);
+			}
+			break;	//SW4-HL-Display-AddCTCPanelHX8394DInsideSupport-00+}_20150317
+		//SW4-HL-Display-AddCTCPanelHX8394FInsideSupport-01+{_20150522
+		case HX8394F_720P_VIDEO_PANEL:
+			{
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->vddio_gpio = %d  **********************\n\n", __func__, ctrl_pdata->vddio_gpio);
+				if (gpio_request(ctrl_pdata->vddio_gpio, "disp_vddio_n")) {
+					pr_err("%s:request vddio gpio failed\n", __func__);
+					BBOX_PANEL_GPIO_FAIL
+					gpio_free(ctrl_pdata->vddio_gpio);
+					return -ENODEV;
+				}
+				gpio_set_value(ctrl_pdata->vddio_gpio, 1);
+
+				for (i = 1; i <= 2; i++)
+				{
+					udelay(1000);
+				}
+
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->avdd_gpio = %d  **********************\n\n", __func__, ctrl_pdata->avdd_gpio);
+				if (gpio_request(ctrl_pdata->avdd_gpio, "disp_avdd_n")) {
+					pr_err("%s:request avdd gpio failed\n", __func__);
+					BBOX_PANEL_GPIO_FAIL
+					gpio_free(ctrl_pdata->avdd_gpio);
+					return -ENODEV;
+				}
+				gpio_set_value(ctrl_pdata->avdd_gpio, 1);
+
+				for (i = 1; i <= 10; i++)
+				{
+					udelay(1000);
+				}
+
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->avee_gpio = %d  **********************\n\n", __func__, ctrl_pdata->avee_gpio);
+				if (gpio_request(ctrl_pdata->avee_gpio, "disp_avee_n")) {
+					pr_err("%s:request avee gpio failed\n", __func__);
+					BBOX_PANEL_GPIO_FAIL
+					gpio_free(ctrl_pdata->avee_gpio);
+					return -ENODEV;
+				}
+				gpio_set_value(ctrl_pdata->avee_gpio, 1);
+
+				for (i = 1; i <= 10; i++)
+				{
+					udelay(1000);
+				}
+
+				//SW4-HL-Display-ImplementBoostConverterDriver-02*{_20150709
+				//Set AVDD to +5.8V
+				pr_debug("\n\n*** [HL]%s: fp7720_set_avdd_voltage ***\n\n", __func__);
+				fp7720_set_avdd_voltage();
+
+				//Set AVEE to -5.8V
+				pr_debug("\n\n*** [HL]%s: fp7720_set_avee_voltage ***\n\n", __func__);
+				fp7720_set_avee_voltage();
+				//SW4-HL-Display-ImplementBoostConverterDriver-02*}_20150709
+			}
+			break;
+		//SW4-HL-Display-AddCTCPanelHX8394FInsideSupport-01+}_20150522
+		case FT8716_1080P_VIDEO_PANEL:	//E1M
+		case FT8716_720P_VIDEO_PANEL:	/* E1M-576 - Add 720P Video panel */
+			{
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->vddio_gpio = %d  **********************\n\n", __func__, ctrl_pdata->vddio_gpio);
+				if (gpio_request(ctrl_pdata->vddio_gpio, "disp_vddio_n")) {
+					pr_err("%s:request vddio gpio failed\n", __func__);
+					BBOX_PANEL_GPIO_FAIL
+					gpio_free(ctrl_pdata->vddio_gpio);
+					return -ENODEV;
+				}
+				gpio_set_value(ctrl_pdata->vddio_gpio, 1);
+				for (i = 1; i <= 5; i++)
+				{
+					udelay(1000);
+				}
+
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->avdd_gpio = %d  **********************\n\n", __func__, ctrl_pdata->avdd_gpio);
+				if (gpio_request(ctrl_pdata->avdd_gpio, "disp_avdd_n")) {
+					pr_err("%s:request avdd gpio failed\n", __func__);
+					BBOX_PANEL_GPIO_FAIL
+					gpio_free(ctrl_pdata->avdd_gpio);
+					return -ENODEV;
+				}
+				gpio_set_value(ctrl_pdata->avdd_gpio, 1);
+				for (i = 1; i <= 15; i++)
+				{
+					udelay(1000);
+				}
+
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->avee_gpio = %d  **********************\n\n", __func__, ctrl_pdata->avee_gpio);
+				if (gpio_request(ctrl_pdata->avee_gpio, "disp_avee_n")) {
+					pr_err("%s:request avee gpio failed\n", __func__);
+					BBOX_PANEL_GPIO_FAIL
+					gpio_free(ctrl_pdata->avee_gpio);
+					return -ENODEV;
+				}
+				gpio_set_value(ctrl_pdata->avee_gpio, 1);
+/*
+				for (i = 1; i <= 10; i++)
+				{
+					udelay(1000);
+				}
+*/
+				//SW4-HL-Display-ImplementBoostConverterDriver-02*{_20150709
+				//Set AVDD to +5.8V
+				pr_debug("\n\n*** [HL]%s: nt50358_set_avdd_voltage ***\n\n", __func__);
+				nt50358_set_avdd_voltage();
+
+				//Set AVEE to -5.8V
+				pr_debug("\n\n*** [HL]%s: nt50358_set_avee_voltage ***\n\n", __func__);
+				nt50358_set_avee_voltage();
+				//SW4-HL-Display-ImplementBoostConverterDriver-02*}_20150709
+			}
+			break;
+		//SW4-HL-Display-AddCTCPanelHX8394FInsideSupport-01+}_20150522
+		default:
+			{
+				pr_debug("\n\n******************** [HL] %s, default  **********************\n\n", __func__);
+			}
+			break;
+	}
+	//SW4-HL-Display-BringUpNT35521-00+}_20150224
+	//SW4-HL-Display-AddTianmaPanelHX8394DInsideSupport-00*}_20150310
+
 	/*
 	 * If continuous splash screen feature is enabled, then we need to
 	 * request all the GPIOs that have already been configured in the
@@ -187,6 +483,9 @@ error:
 				ctrl_pdata->power_data[i].vreg_config,
 				ctrl_pdata->power_data[i].num_vreg, 0);
 	}
+
+	pr_debug("\n\n******************** [HL] %s ---, ret = %d **********************\n\n", __func__, ret);
+
 	return ret;
 }
 
@@ -1255,6 +1554,516 @@ static int mdss_dsi_clk_refresh(struct mdss_panel_data *pdata)
 	return rc;
 }
 
+int fih_set_esd(bool enable)
+{
+	pr_info("%s: [LCM-ESD] Before pinfo->esd_check_enabled= %d\n", __func__, (int)gpdata->panel_data.panel_info.esd_check_enabled);
+	gpdata->panel_data.panel_info.esd_check_enabled = enable;
+	pr_info("%s: [LCM-ESD] After pinfo->esd_check_enabled= %d\n", __func__, (int)gpdata->panel_data.panel_info.esd_check_enabled);
+
+	return 0;
+}
+EXPORT_SYMBOL(fih_set_esd);
+
+bool fih_get_esd(void)
+{
+	return gpdata->panel_data.panel_info.esd_check_enabled;
+}
+EXPORT_SYMBOL(fih_get_esd);
+
+//SW4-HL-FixKernelPanicWhenBootingIntoOS-00*{_20150514
+//SW4-HL-Display-CE&CTWillNotBeExecutedUntilPanelInitIsDone-00*{_20150317
+int fih_get_ce (void)
+{
+	return ce_en;
+}
+EXPORT_SYMBOL(fih_get_ce);
+
+int fih_set_ce (int ce)
+{
+	int res;
+	int i;
+
+	if (!gInSplashScreen)
+	{
+		res = mdss_dsi_panel_ce_onoff(gpdata, ce);
+		if (!res) //SW4-HL-Display-EnhanceErrorHandling-00*_20150320
+		{
+			goto fail;
+		}
+
+		ce_en = ce;
+	}
+	else
+	{
+		for (i = 3; i > 0; i--)
+		{
+			mdelay(500);
+
+			if (!gInSplashScreen)
+			{
+				res = mdss_dsi_panel_ce_onoff(gpdata, ce);
+				if (!res) //SW4-HL-Display-EnhanceErrorHandling-00*_20150320
+				{
+					goto fail;
+				}
+
+				ce_en = ce;
+
+				break;
+			}
+		}
+	}
+
+fail:
+	return res;
+}
+EXPORT_SYMBOL(fih_set_ce);
+
+int fih_get_ct (void)
+{
+	return ct_set;
+}
+EXPORT_SYMBOL(fih_get_ct);
+
+int fih_set_ct (int ct)
+{
+	int res;
+	int i;
+
+	if (!gInSplashScreen)
+	{
+		res = mdss_dsi_panel_ct_set(gpdata, ct);
+		if (!res)	 //SW4-HL-Display-EnhanceErrorHandling-00*_20150320
+		{
+			goto fail;
+		}
+
+		ct_set = ct;
+	}
+	else
+	{
+		for (i = 3; i > 0; i--)
+		{
+			mdelay(500);
+
+			if (!gInSplashScreen)
+			{
+				res = mdss_dsi_panel_ct_set(gpdata, ct);
+				if (!res)	 //SW4-HL-Display-EnhanceErrorHandling-00*_20150320
+				{
+					goto fail;
+				}
+
+				ct_set = ct;
+
+				break;
+			}
+		}
+	}
+
+fail:
+	return res;
+}
+EXPORT_SYMBOL(fih_set_ct);
+
+int fih_get_cabc (void)
+{
+	return cabc_set;
+}
+EXPORT_SYMBOL(fih_get_cabc);
+
+int fih_set_cabc(int cabc)
+{
+	int res;
+	int i;
+
+	if (!gInSplashScreen)
+	{
+		res = mdss_dsi_panel_cabc_set(gpdata, cabc);
+		if (!res)	 //SW4-HL-Display-EnhanceErrorHandling-00*_20150320
+		{
+			goto fail;
+		}
+
+		cabc_set = cabc;
+	}
+	else
+	{
+		for (i = 3; i > 0; i--)
+		{
+			mdelay(500);
+
+			if (!gInSplashScreen)
+			{
+				res = mdss_dsi_panel_cabc_set(gpdata, cabc);
+				if (!res)	 //SW4-HL-Display-EnhanceErrorHandling-00*_20150320
+				{
+					goto fail;
+				}
+
+				cabc_set = cabc;
+
+				break;
+			}
+		}
+	}
+
+fail:
+	return res;
+}
+EXPORT_SYMBOL(fih_set_cabc);
+
+/* E1M-4489 - Add SVI(AIE) setting */
+int fih_get_svi (void)
+{
+	return svi_set;
+}
+EXPORT_SYMBOL(fih_get_svi);
+
+int fih_set_svi(int svi)
+{
+	int res;
+
+	pr_debug("\n\n******************** [HL] %s +++, svi = %d **********************\n\n", __func__, svi);
+	res = mdss_dsi_panel_svi_set(gpdata, svi);
+	if (!res)	 //SW4-HL-Display-EnhanceErrorHandling-00*_20150320
+	{
+		goto fail;
+	}
+
+	svi_set = svi;
+
+fail:
+	return res;
+}
+EXPORT_SYMBOL(fih_set_svi);
+/* end E1M-576 */
+
+/* E1M-576 - Add LCM mipi reg read/write command */
+void fih_get_read_reg (char *reg_val)
+{
+	mdss_dsi_panel_read_reg_get(reg_val);
+
+	return;
+
+}
+EXPORT_SYMBOL(fih_get_read_reg);
+
+void fih_set_read_reg(unsigned int reg, unsigned int reg_len)
+{
+	mdss_dsi_panel_read_reg_set(gpdata, reg, reg_len);
+
+	return;
+}
+EXPORT_SYMBOL(fih_set_read_reg);
+
+void fih_set_write_reg(unsigned int len, char *data)
+{
+	mdss_dsi_panel_write_reg_set(gpdata, len, data);
+
+	return;
+}
+EXPORT_SYMBOL(fih_set_write_reg);
+/* end E1M-576 */
+
+//SW4-HL-Display-PowerPinControlPinAndInitCodeAPI-00+{_20150519
+int fih_get_vddio (void)
+{
+	return vddio_set;
+}
+EXPORT_SYMBOL(fih_get_vddio);
+
+int fih_set_vddio(int vddio)
+{
+	pr_debug("\n\n******************** [HL] %s +++, gpdata->vddio_gpio = %d, vddio = %d **********************\n\n", __func__, gpdata->vddio_gpio, vddio);
+
+	gpio_set_value(gpdata->vddio_gpio, vddio);
+
+	vddio_set = vddio;
+
+	return 0;
+}
+EXPORT_SYMBOL(fih_set_vddio);
+
+int fih_get_avdd (void)
+{
+	return avdd_set;
+}
+EXPORT_SYMBOL(fih_get_avdd);
+
+int fih_set_avdd(int avdd)
+{
+	pr_debug("\n\n******************** [HL] %s +++, gpdata->avdd_gpio = %d, avdd = %d **********************\n\n", __func__, gpdata->avdd_gpio, avdd);
+
+	gpio_set_value(gpdata->avdd_gpio, avdd);
+
+	avdd_set = avdd;
+
+	return 0;
+}
+EXPORT_SYMBOL(fih_set_avdd);
+
+int fih_get_avee (void)
+{
+	return avee_set;
+}
+EXPORT_SYMBOL(fih_get_avee);
+
+int fih_set_avee(int avee)
+{
+	pr_debug("\n\n******************** [HL] %s +++, gpdata->avee_gpio = %d, avee = %d **********************\n\n", __func__, gpdata->avee_gpio, avee);
+
+	gpio_set_value(gpdata->avee_gpio, avee);
+
+	avee_set = avee;
+
+	return 0;
+}
+EXPORT_SYMBOL(fih_set_avee);
+
+int fih_get_reset (void)
+{
+	return reset_set;
+}
+EXPORT_SYMBOL(fih_get_reset);
+
+int fih_set_reset(int reset)
+{
+	int i = 0;
+	struct mdss_panel_info *pinfo = NULL;
+
+	pr_debug("\n\n******************** [HL] %s +++, gpdata->rst_gpio = %d, reset = %d **********************\n\n", __func__, gpdata->rst_gpio, reset);
+
+	pinfo = &(gpdata->panel_data.panel_info);
+
+	if (reset)
+	{
+		//if (mdss_dsi_pinctrl_set_state(gpdata, true))
+		//{
+		//	pr_debug("reset enable: pinctrl not enabled\n");
+		//}
+
+		for (i = 0; i < pinfo->rst_seq_len; ++i) {
+			gpio_set_value((gpdata->rst_gpio),
+				pinfo->rst_seq[i]);
+			if (pinfo->rst_seq[++i])
+				usleep(pinfo->rst_seq[i] * 1000);
+			pr_debug("\n\n******************** [HL] %s, i = %d **********************\n\n", __func__, i);
+		}
+	}
+	else
+	{
+		gpio_set_value((gpdata->rst_gpio), 0);
+
+		//if (mdss_dsi_pinctrl_set_state(gpdata, false))
+		//{
+		//	pr_debug("reset disable: pinctrl not enabled\n");
+		//}
+	}
+
+	reset_set = reset;
+
+	return 0;
+}
+EXPORT_SYMBOL(fih_set_reset);
+
+int fih_get_init (void)
+{
+	return init_set;
+}
+EXPORT_SYMBOL(fih_get_init);
+
+int fih_set_init(int init)
+{
+	int res = 0;
+	int len = 1;
+
+	pr_debug("\n\n******************** [HL] %s +++, init = %d **********************\n\n", __func__, init);
+
+	if (init)
+	{
+		if (gpdata->on_cmds.cmd_cnt)
+		{
+			len = gpdata->cmds_send(gpdata, &gpdata->on_cmds);
+			if (!len)
+			{
+				goto fail;
+			}
+		}
+	}
+	else
+	{
+		if (gpdata->off_cmds.cmd_cnt)
+		{
+			len = gpdata->cmds_send(gpdata, &gpdata->off_cmds);
+			if (!len)
+			{
+				goto fail;
+			}
+		}
+	}
+
+	init_set = init;
+
+fail:
+	return res;
+}
+EXPORT_SYMBOL(fih_set_init);
+
+int fih_get_ldos (void)
+{
+	return ldos_set;
+}
+EXPORT_SYMBOL(fih_get_ldos);
+
+int fih_set_ldos(int ldos)
+{
+	int res;
+	int i = 0;
+
+	pr_debug("\n\n******************** [HL] %s +++, ldos = %d **********************\n\n", __func__, ldos);
+
+	if (ldos)
+	{
+		for (i = 0; i < DSI_MAX_PM; i++)
+		{
+			/*
+			 * Core power module will be enabled when the
+			 * clocks are enabled
+			 */
+			//if (DSI_CORE_PM == i)
+			//	continue;
+			res = msm_dss_enable_vreg(
+				gpdata->power_data[i].vreg_config,
+				gpdata->power_data[i].num_vreg, 1);
+			if (res)
+			{
+				pr_err("%s: failed to enable vregs for %s\n",
+					__func__, __mdss_dsi_pm_name(i));
+				goto fail;
+			}
+		}
+	}
+	else
+	{
+		for (i = DSI_MAX_PM - 1; i >= 0; i--)
+		{
+			/*
+			 * Core power module will be disabled when the
+			 * clocks are disabled
+			 */
+			//if (DSI_CORE_PM == i)
+			//	continue;
+			res = msm_dss_enable_vreg(
+				gpdata->power_data[i].vreg_config,
+				gpdata->power_data[i].num_vreg, 0);
+			if (res)
+			{
+				pr_err("%s: failed to disable vregs for %s\n",
+					__func__, __mdss_dsi_pm_name(i));
+				goto fail;
+			}
+		}
+	}
+
+	ldos_set = ldos;
+
+fail:
+	return res;
+}
+EXPORT_SYMBOL(fih_set_ldos);
+//SW4-HL-Display-PowerPinControlPinAndInitCodeAPI-00+}_20150519
+
+static int fih_set_feature(void)
+{
+	int rc = 0;
+	//int ret = -EINVAL;	//SW4-HL-Display-EnablePWMOutput-00-_20150605
+
+	pr_debug("\n\n*** [HL] %s +++ ***\n\n", __func__);
+
+	if (CE_enable)
+	{
+		//SW4-HL-Display-EnablePWMOutput-00*{_20150605
+		#if 0
+		pr_debug("[HL]%s: fih_set_ce <-- start\n", __func__);
+		ret= fih_set_ce(ce_en);
+		if (!ret)	//SW4-HL-Display-EnhanceErrorHandling-00*_20150320
+		{
+			pr_err("%s: unable to set ce command to the panel\n", __func__);
+			goto fail;
+		}
+		else
+		{
+			pr_debug("\n\n*** [HL] %s, Succeed to set ce command to the panel!, ce_en = %ld ***\n\n", __func__, ce_en);
+		}
+		pr_debug("[HL]%s: fih_set_ce <-- end\n", __func__);
+		#else
+		SendCEOnlyAfterResume = 1;
+		#endif
+		//SW4-HL-Display-EnablePWMOutput-00*}_20150605
+	}
+
+	if (CT_enable)
+	{
+		//SW4-HL-Display-EnablePWMOutput-00*{_20150605
+		#if 0
+		pr_debug("[HL]%s: fih_set_ct <-- start\n", __func__);
+		ret = fih_set_ct(ct_set);
+		if (!ret)	//SW4-HL-Display-EnhanceErrorHandling-00*_20150320
+		{
+			pr_err("%s: unable to set ct command to the panel\n", __func__);
+			goto fail;
+		}
+		else
+		{
+			pr_debug("\n\n*** [HL] %s, Succeed to set ct command to the panel!, ct_set = %ld ***\n\n", __func__, ct_set);
+		}
+		pr_debug("[HL]%s: fih_set_ct <-- end\n", __func__);
+		#else
+		SendCTOnlyAfterResume = 1;
+		#endif
+		//SW4-HL-Display-EnablePWMOutput-00*}_20150605
+	}
+
+	if (CABC_enable)
+	{
+		//SW4-HL-Display-EnablePWMOutput-00*{_20150605
+		#if 0
+		pr_debug("[HL]%s: fih_set_cabc <-- start\n", __func__);
+		ret = fih_set_cabc(cabc_set);
+		if (!ret)	//SW4-HL-Display-EnhanceErrorHandling-00*_20150320
+		{
+			pr_err("%s: unable to set cabc command to the panel\n", __func__);
+			goto fail;
+		}
+		else
+		{
+			pr_debug("\n\n*** [HL] %s, Succeed to set cabc command to the panel!, cabc_set = %ld ***\n\n", __func__, cabc_set);
+		}
+		pr_debug("[HL]%s: fih_set_cabc <-- end\n", __func__);
+		#else
+		SendCABCOnlyAfterResume = 1;
+		#endif
+		//SW4-HL-Display-EnablePWMOutput-00*}_20150605
+	}
+
+//SW4-HL-Display-EnablePWMOutput-00*{_20150605
+#if 0
+fail:
+	pr_debug("\n\n*** [HL] %s ---, rc = %d ***\n\n", __func__, rc);
+#endif
+//SW4-HL-Display-EnablePWMOutput-00*}_20150605
+
+	return rc;
+}
+//SW4-HL-Display-CE&CTWillNotBeExecutedUntilPanelInitIsDone-00*}_20150317
+//SW4-HL-FixKernelPanicWhenBootingIntoOS-00*}_20150514
+//SW4-HL-Display-EnablePWMOutput-00+{_20150605
+EXPORT_SYMBOL(SendCEOnlyAfterResume);
+EXPORT_SYMBOL(SendCTOnlyAfterResume);
+EXPORT_SYMBOL(SendCABCOnlyAfterResume);
+//SW4-HL-Display-EnablePWMOutput-00+}_20150605
+
 static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 				  int event, void *arg)
 {
@@ -1278,25 +2087,44 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 		ctrl_pdata->refresh_clk_rate = true;
 		break;
 	case MDSS_EVENT_LINK_READY:
+		pr_debug("[HL]%s: MDSS_EVENT_LINK_READY <-- start\n", __func__);
 		rc = mdss_dsi_on(pdata);
 		mdss_dsi_op_mode_config(pdata->panel_info.mipi.mode,
 							pdata);
+		pr_debug("[HL]%s: MDSS_EVENT_LINK_READY <-- end\n", __func__);
 		break;
 	case MDSS_EVENT_UNBLANK:
+		pr_debug("[HL]%s: MDSS_EVENT_UNBLANK <-- start\n", __func__);
 		if (ctrl_pdata->refresh_clk_rate)
 			rc = mdss_dsi_clk_refresh(pdata);
 		mdss_dsi_get_hw_revision(ctrl_pdata);
 		if (ctrl_pdata->on_cmds.link_state == DSI_LP_MODE)
 			rc = mdss_dsi_unblank(pdata);
+		pr_debug("[HL]%s: MDSS_EVENT_UNBLANK <-- end\n", __func__);
 		break;
 	case MDSS_EVENT_POST_PANEL_ON:
 		rc = mdss_dsi_post_panel_on(pdata);
 		break;
 	case MDSS_EVENT_PANEL_ON:
+		pr_debug("[HL]%s: MDSS_EVENT_PANEL_ON <-- start\n", __func__);
 		ctrl_pdata->ctrl_state |= CTRL_STATE_MDP_ACTIVE;
 		if (ctrl_pdata->on_cmds.link_state == DSI_HS_MODE)
 			rc = mdss_dsi_unblank(pdata);
 		pdata->panel_info.esd_rdy = true;
+		pr_debug("[HL]%s: fih_set_feature <-- start\n", __func__);
+		//SW4-HL-Display-CE&CTWillNotBeExecutedUntilPanelInitIsDone-01*{_20150428
+		if(strstr(saved_command_line, "androidboot.mode=0")!=NULL)
+		{
+			//SW4-HL-FixKernelPanicWhenBootingIntoOS-00*{_20150514
+			if (!pdata->panel_info.cont_splash_enabled)
+			{
+				rc = fih_set_feature();
+			}
+			//SW4-HL-FixKernelPanicWhenBootingIntoOS-00*}_20150514
+		}
+		//SW4-HL-Display-CE&CTWillNotBeExecutedUntilPanelInitIsDone-01*}_20150428
+		pr_debug("[HL]%s: fih_set_feature <-- end\n", __func__);
+		pr_debug("[HL]%s: MDSS_EVENT_PANEL_ON <-- end\n", __func__);
 		break;
 	case MDSS_EVENT_BLANK:
 		power_state = (int) (unsigned long) arg;
@@ -1455,6 +2283,131 @@ end:
 	return dsi_pan_node;
 }
 
+//SW4-HL-Display-BringUpNT35521-00+{_20150224
+static ssize_t ce_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	 return sprintf(buf, "%lu\n", ce_en);
+}
+
+static ssize_t ce_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	int rc = -ENXIO;
+
+	pr_debug("\n\n******************** [HL] %s +++ **********************\n\n", __func__);
+
+	rc = kstrtoul(buf, 0, &ce_en);
+	if (rc)
+	{
+		return rc;
+	}
+
+	pr_debug("\n\n******************** [HL] %s, ce_en = %ld **********************\n\n", __func__, ce_en);
+
+	if (ce_en)
+	{
+		mdss_dsi_panel_ce_onoff(gpdata, 1);
+	}
+	else
+	{
+		mdss_dsi_panel_ce_onoff(gpdata, 0);
+	}
+
+	pr_debug("\n\n******************** [HL] %s --- **********************\n\n", __func__);
+
+	return count;
+}
+
+static ssize_t ct_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	 return sprintf(buf, "%lu\n", ct_set);
+}
+
+static ssize_t ct_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	int rc = -ENXIO;
+
+	pr_debug("\n\n******************** [JOVI] %s +++ **********************\n\n", __func__);
+
+	rc = kstrtoul(buf, 0, &ct_set);
+	if (rc)
+	{
+		return rc;
+	}
+
+	pr_debug("\n\n******************** [JOVI] %s, ct_set = %ld **********************\n\n", __func__, ct_set);
+	mdss_dsi_panel_ct_set(gpdata, ct_set);
+
+	pr_debug("\n\n******************** [JOVI] %s --- **********************\n\n", __func__);
+
+	return count;
+}
+
+static ssize_t cabc_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	 return sprintf(buf, "%lu\n", cabc_set);
+}
+
+static ssize_t cabc_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	int rc = -ENXIO;
+
+	pr_debug("\n\n*** [HL] %s +++ ***\n\n", __func__);
+
+	rc = kstrtoul(buf, 0, &cabc_set);
+	if (rc)
+	{
+		return rc;
+	}
+
+	pr_debug("\n\n*** [HL] %s, cabc_set = %ld ***\n\n", __func__, cabc_set);
+	mdss_dsi_panel_cabc_set(gpdata, cabc_set);
+
+	pr_debug("\n\n*** [HL] %s --- ***\n\n", __func__);
+
+	return count;
+}
+
+static struct device_attribute lcd_device_attributes_ce[] = {
+	__ATTR(color_mode, 0664, ce_show, ce_store),
+	__ATTR_NULL,
+};
+
+static struct device_attribute lcd_device_attributes_ct[] = {
+	__ATTR(color_temperature, 0664, ct_show, ct_store),
+	__ATTR_NULL,
+};
+
+static struct device_attribute lcd_device_attributes_cabc[] = {
+	__ATTR(cabc_setting, 0664, cabc_show, cabc_store),
+	__ATTR_NULL,
+};
+
+static struct device_attribute lcd_device_attributes_ce_ct[] = {
+	__ATTR(color_mode, 0664, ce_show, ce_store),
+	__ATTR(color_temperature, 0664, ct_show, ct_store),
+	__ATTR_NULL,
+};
+
+static struct device_attribute lcd_device_attributes_ce_cabc[] = {
+	__ATTR(color_mode, 0664, ce_show, ce_store),
+	__ATTR(cabc_setting, 0664, cabc_show, cabc_store),
+	__ATTR_NULL,
+};
+
+static struct device_attribute lcd_device_attributes_ct_cabc[] = {
+	__ATTR(color_temperature, 0664, ct_show, ct_store),
+	__ATTR(cabc_setting, 0664, cabc_show, cabc_store),
+	__ATTR_NULL,
+};
+
+static struct device_attribute lcd_device_attributes_ce_ct_cabc[] = {
+	__ATTR(color_mode, 0664, ce_show, ce_store),
+	__ATTR(color_temperature, 0664, ct_show, ct_store),
+	__ATTR(cabc_setting, 0664, cabc_show, cabc_store),
+	__ATTR_NULL,
+};
+//SW4-HL-Display-BringUpNT35521-00+}_20150224
+
 static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 {
 	int rc = 0, i = 0;
@@ -1467,21 +2420,26 @@ static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 	struct mdss_panel_cfg *pan_cfg = NULL;
 	struct mdss_util_intf *util;
 
+	pr_debug("\n\n******************** [HL] %s +++  **********************\n\n", __func__);
+
 	util = mdss_get_util_intf();
 	if (util == NULL) {
 		pr_err("Failed to get mdss utility functions\n");
 		return -ENODEV;
 	}
+	pr_debug("\n\n******************** [HL] %s, util = mdss_get_util_intf();  **********************\n\n", __func__);
 
 	if (!util->mdp_probe_done) {
 		pr_err("%s: MDP not probed yet!\n", __func__);
 		return -EPROBE_DEFER;
 	}
+	pr_debug("\n\n******************** [HL] %s, if (!util->mdp_probe_done)  **********************\n\n", __func__);
 
 	if (!pdev->dev.of_node) {
 		pr_err("DSI driver only supports device tree probe\n");
 		return -ENOTSUPP;
 	}
+	pr_debug("\n\n******************** [HL] %s, if (!pdev->dev.of_node)  **********************\n\n", __func__);
 
 	pan_cfg = util->panel_intf_type(MDSS_PANEL_INTF_HDMI);
 	if (IS_ERR(pan_cfg)) {
@@ -1490,6 +2448,7 @@ static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 		pr_debug("%s: HDMI is primary\n", __func__);
 		return -ENODEV;
 	}
+	pr_debug("\n\n******************** [HL] %s, if (IS_ERR(pan_cfg))  **********************\n\n", __func__);
 
 	ctrl_pdata = platform_get_drvdata(pdev);
 	if (!ctrl_pdata) {
@@ -1506,6 +2465,7 @@ static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 	}
 	ctrl_pdata->mdss_util = util;
 	atomic_set(&ctrl_pdata->te_irq_ready, 0);
+	pr_debug("\n\n******************** [HL] %s, atomic_set(&ctrl_pdata->te_irq_ready, 0)  **********************\n\n", __func__);
 
 	ctrl_name = of_get_property(pdev->dev.of_node, "label", NULL);
 	if (!ctrl_name)
@@ -1523,6 +2483,7 @@ static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 			__func__, rc);
 		goto error_no_mem;
 	}
+	pr_debug("\n\n******************** [HL] %s, rc = of_property_read_u32(pdev->dev.of_node, \"cell-index\", &index);  **********************\n\n", __func__);
 
 	if (index == 0)
 		pdev->id = 1;
@@ -1537,10 +2498,13 @@ static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 			__func__, rc);
 		goto error_no_mem;
 	}
+	pr_debug("\n\n******************** [HL] %s, rc = of_platform_populate(pdev->dev.of_node  **********************\n\n", __func__);
 
 	rc = mdss_dsi_pinctrl_init(pdev);
 	if (rc)
 		pr_warn("%s: failed to get pin resources\n", __func__);
+
+	pr_debug("\n\n******************** [HL] %s, mdss_dsi_pinctrl_init  **********************\n\n", __func__);
 
 	/* Parse the regulator information */
 	for (i = 0; i < DSI_MAX_PM; i++) {
@@ -1552,6 +2516,7 @@ static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 			goto error_vreg;
 		}
 	}
+	pr_debug("\n\n******************** [HL] %s, for (i = 0; i < DSI_MAX_PM; i++)  **********************\n\n", __func__);
 
 	/*
 	 * Currently, the Bias vreg is controlled by wled driver.
@@ -1605,6 +2570,145 @@ static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 		disable_irq(gpio_to_irq(ctrl_pdata->disp_te_gpio));
 	}
 	pr_debug("%s: Dsi Ctrl->%d initialized\n", __func__, index);
+
+	//SW4-HL-Display-BringUpNT35521-00+{_20150224
+	pr_debug("\n\n*** [HL] %s, BBB CE_enable = %d ***\n\n", __func__, CE_enable);
+	pr_debug("\n\n*** [HL] %s, BBB CT_enable = %d ***\n\n", __func__, CT_enable);
+	pr_debug("\n\n*** [HL] %s, BBB CABC_enable = %d ***\n\n", __func__, CABC_enable);
+	if((ctrl_pdata->ce_on_cmds.cmd_cnt) &&
+		(ctrl_pdata->ce_off_cmds.cmd_cnt))
+	{
+		CE_enable = 1;
+	}
+
+	if((ctrl_pdata->ct_cold_cmds.cmd_cnt) &&
+		(ctrl_pdata->ct_normal_cmds.cmd_cnt) &&
+	    	(ctrl_pdata->ct_warm_cmds.cmd_cnt) &&
+		(ctrl_pdata->blf_10_cmds.cmd_cnt) &&
+		(ctrl_pdata->blf_30_cmds.cmd_cnt) &&
+		(ctrl_pdata->blf_50_cmds.cmd_cnt) &&
+		(ctrl_pdata->blf_75_cmds.cmd_cnt))
+	{
+		CT_enable = 1;
+	}
+
+	if((ctrl_pdata->cabc_off_cmds.cmd_cnt) &&
+		(ctrl_pdata->cabc_ui_cmds.cmd_cnt) &&
+		(ctrl_pdata->cabc_still_cmds.cmd_cnt) &&
+		(ctrl_pdata->cabc_moving_cmds.cmd_cnt))
+	{
+		CABC_enable = 1;
+	}
+
+/* E1M-4489 - Add SVI(AIE) setting */
+	if((ctrl_pdata->svi_on_cmds.cmd_cnt) &&
+		(ctrl_pdata->svi_off_cmds.cmd_cnt))
+	{
+		SVI_enable = 1;
+	}
+/* end E1M-4489 */
+
+	pr_debug("\n\n*** [HL] %s, AAA CE_enable = %d ***\n\n", __func__, CE_enable);
+	pr_debug("\n\n*** [HL] %s, AAA CT_enable = %d ***\n\n", __func__, CT_enable);
+	pr_debug("\n\n*** [HL] %s, AAA CABC_enable = %d ***\n\n", __func__, CABC_enable);
+
+	{
+		gpdata = devm_kzalloc(&pdev->dev,
+					  sizeof(struct mdss_dsi_ctrl_pdata),
+					  GFP_KERNEL);
+		if (!gpdata) {
+			pr_err("%s: FAILED: cannot alloc dsi ctr - gpdata\n",
+			       __func__);
+			rc = -ENOMEM;
+			goto error_no_mem;
+		}
+		platform_set_drvdata(pdev, gpdata);
+
+		gpdata = ctrl_pdata;
+	}
+
+	if (CE_enable || CT_enable || CABC_enable)
+	{
+		lcd_class = class_create(THIS_MODULE, "lcm");
+		if (IS_ERR(lcd_class))
+		{
+			pr_err("Unable to create lcm class; errno = %ld\n",
+					PTR_ERR(lcd_class));
+			return PTR_ERR(lcd_class);
+		}
+
+		//check if it suppots ce
+		if (CE_enable)
+		{
+			//check if it supports ct
+			if (CT_enable)
+			{
+				//check if it supports cabc
+				if (CABC_enable)
+				{
+					pr_debug("\n\n*** [HL] %s, It supports ce&ct&cabc ***\n\n", __func__);
+					lcd_class->dev_attrs = lcd_device_attributes_ce_ct_cabc;
+				}
+				else
+				{
+					pr_debug("\n\n*** [HL] %s, It supports ce&ct ***\n\n", __func__);
+					lcd_class->dev_attrs = lcd_device_attributes_ce_ct;
+				}
+			}
+			else
+			{
+				//check if it supports cabc
+				if (CABC_enable)
+				{
+					pr_debug("\n\n*** [HL] %s, It supports ce&cabc ***\n\n", __func__);
+					lcd_class->dev_attrs = lcd_device_attributes_ce_cabc;
+				}
+				else
+				{
+					pr_debug("\n\n*** [HL] %s, It supports ce ***\n\n", __func__);
+					lcd_class->dev_attrs = lcd_device_attributes_ce;
+				}
+			}
+		}
+		else
+		{
+			//check if it supports ct
+			if (CT_enable)
+			{
+				//check if it supports cabc
+				if (CABC_enable)
+				{
+					pr_debug("\n\n*** [HL] %s, It supports ct&cabc ***\n\n", __func__);
+					lcd_class->dev_attrs = lcd_device_attributes_ct_cabc;
+				}
+				else
+				{
+					pr_debug("\n\n*** [HL] %s, It supports ct ***\n\n", __func__);
+					lcd_class->dev_attrs = lcd_device_attributes_ct;
+				}
+			}
+			else
+			{
+				//check if it supports cabc
+				if (CABC_enable)
+				{
+					pr_debug("\n\n*** [HL] %s, It supports cabc ***\n\n", __func__);
+					lcd_class->dev_attrs = lcd_device_attributes_cabc;
+				}
+				else
+				{
+					pr_debug("\n\n*** [HL] %s, None of ce or ct or cabc is supported! ***\n\n", __func__);
+				}
+			}
+
+		}
+
+		device_create(lcd_class, NULL, 0, NULL, "lcd");
+	}
+
+	pr_debug("\n\n******************** [HL] %s ---, probe OK, return 0  **********************\n\n", __func__);
+	//SW4-HL-Display-BringUpNT35521-00+}_20150224
+
 	return 0;
 
 error_pan_node:
@@ -1618,8 +2722,22 @@ error_vreg:
 error_no_mem:
 	devm_kfree(&pdev->dev, ctrl_pdata);
 
+	//SW4-HL-Display-BringUpNT35521-00+_20150224
+	devm_kfree(&pdev->dev, gpdata);
+
 	return rc;
 }
+//SW4-HL-Display-BringUpNT35521-00+{_20150224
+EXPORT_SYMBOL(CE_enable);
+EXPORT_SYMBOL(CT_enable);
+EXPORT_SYMBOL(CABC_enable);
+//SW4-HL-Display-BringUpNT35521-00+}_20150224
+
+//SW4-HL-Display-PowerPinControlPinAndInitCodeAPI-00+{_20150519
+EXPORT_SYMBOL(vddio_enable);
+EXPORT_SYMBOL(avdd_enable);
+EXPORT_SYMBOL(avee_enable);
+//SW4-HL-Display-PowerPinControlPinAndInitCodeAPI-00+}_20150519
 
 static int mdss_dsi_ctrl_remove(struct platform_device *pdev)
 {
@@ -1748,6 +2866,8 @@ int dsi_panel_device_register(struct device_node *pan_node,
 	struct platform_device *ctrl_pdev = NULL;
 	const char *data;
 	struct resource *res;
+
+	pr_debug("\n\n******************** [HL] %s +++  **********************\n\n", __func__);
 
 	mipi  = &(pinfo->mipi);
 
@@ -1885,6 +3005,76 @@ int dsi_panel_device_register(struct device_node *pan_node,
 		pr_err("%s:%d, reset gpio not specified\n",
 						__func__, __LINE__);
 
+	//SW4-HL-Display-BringUpNT35521-00+{_20150224
+	pr_debug("\n\n******************** [HL] %s, switch (pinfo->pid)  **********************\n\n", __func__);
+	switch (pinfo->pid)
+	{
+		case NT35521_720P_VIDEO_PANEL:
+		case HX8394A_720P_VIDEO_PANEL:		//SW4-HL-Display-AddTianmaPanelHX8394DInsideSupport-00+_20150310
+		case HX8394D_720P_VIDEO_PANEL:		//SW4-HL-Display-AddCTCPanelHX8394DInsideSupport-00+_20150317
+		case HX8394F_720P_VIDEO_PANEL:		//SW4-HL-Display-AddCTCPanelHX8394FInsideSupport-00+_20150423
+		case NT35521S_720P_VIDEO_PANEL:		//SW4-HL-Dispay-BringUpNT35521S_ForM378M379-00+_20151022
+		case NT35521S_NG_720P_VIDEO_PANEL:	//SW4-HL-Dispay-BringUpNT35521S_ForM378M379-02+_20151120
+		case FT8716_1080P_VIDEO_PANEL:	//E1M
+		case FT8716_720P_VIDEO_PANEL:	/* E1M-576 - Add 720P Video panel */
+			{
+				//IOVDD En
+				ctrl_pdata->vddio_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
+					 "qcom,platform-vddio-gpio", 0);
+				if (!gpio_is_valid(ctrl_pdata->vddio_gpio)) {
+					pr_err("%s:%d, vddio gpio not specified\n",
+									__func__, __LINE__);
+				}
+				//SW4-HL-Display-PowerPinControlPinAndInitCodeAPI-00+{_20150519
+				else
+				{
+					vddio_enable = 1;
+				}
+				//SW4-HL-Display-PowerPinControlPinAndInitCodeAPI-00+}_20150519
+
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->vddio_gpio = %d  **********************\n\n", __func__, ctrl_pdata->vddio_gpio);
+
+				//AVDD, +5V
+				ctrl_pdata->avdd_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
+						 "qcom,platform-avdd-gpio", 0);
+				if (!gpio_is_valid(ctrl_pdata->avdd_gpio)) {
+					pr_err("%s:%d, avdd gpio not specified\n",
+									__func__, __LINE__);
+				}
+				//SW4-HL-Display-PowerPinControlPinAndInitCodeAPI-00+{_20150519
+				else
+				{
+					avdd_enable = 1;
+				}
+				//SW4-HL-Display-PowerPinControlPinAndInitCodeAPI-00+}_20150519
+
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->avdd_gpio = %d  **********************\n\n", __func__, ctrl_pdata->avdd_gpio);
+
+				//AVEE, -5V
+				ctrl_pdata->avee_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
+						 "qcom,platform-avee-gpio", 0);
+				if (!gpio_is_valid(ctrl_pdata->avee_gpio)) {
+					pr_err("%s:%d, avee gpio not specified\n",
+									__func__, __LINE__);
+				}
+				//SW4-HL-Display-PowerPinControlPinAndInitCodeAPI-00+{_20150519
+				else
+				{
+					avee_enable = 1;
+				}
+				//SW4-HL-Display-PowerPinControlPinAndInitCodeAPI-00+}_20150519
+
+				pr_debug("\n\n******************** [HL] %s, ctrl_pdata->avee_gpio = %d  **********************\n\n", __func__, ctrl_pdata->avee_gpio);
+			}
+			break;
+		default:
+			{
+				pr_debug("\n\n******************** [HL] %s, default  **********************\n\n", __func__);
+			}
+			break;
+	}
+	//SW4-HL-Display-BringUpNT35521-00+}_20150224
+
 	if (pinfo->mode_gpio_state != MODE_GPIO_NOT_VALID) {
 
 		ctrl_pdata->mode_gpio = of_get_named_gpio(
@@ -1985,6 +3175,7 @@ int dsi_panel_device_register(struct device_node *pan_node,
 	}
 
 	if (pinfo->cont_splash_enabled) {
+		pr_debug("\n\n******************** [HL] %s, Continuous splash flag enabled.  **********************\n\n", __func__);
 		rc = mdss_dsi_panel_power_ctrl(&(ctrl_pdata->panel_data),
 			MDSS_PANEL_POWER_ON);
 		if (rc) {
@@ -2021,6 +3212,8 @@ int dsi_panel_device_register(struct device_node *pan_node,
 		ctrl_pdata->ctrl_base, ctrl_pdata->reg_size);
 
 	pr_debug("%s: Panel data initialized\n", __func__);
+	pr_debug("\n\n******************** [HL] %s ---  **********************\n\n", __func__);
+
 	return 0;
 }
 
@@ -2049,11 +3242,15 @@ static int __init mdss_dsi_driver_init(void)
 {
 	int ret;
 
+	pr_debug("\n\n******************** [HL] %s +++  **********************\n\n", __func__);
+
 	ret = mdss_dsi_register_driver();
 	if (ret) {
 		pr_err("mdss_dsi_register_driver() failed!\n");
 		return ret;
 	}
+
+	pr_debug("\n\n******************** [HL] %s ---  **********************\n\n", __func__);
 
 	return ret;
 }

@@ -1383,12 +1383,16 @@ irqreturn_t msm_iommu_fault_handler_v2(int irq, void *dev_id)
 		}
 		if (ret == -ENOSYS) {
 			pr_err("Unexpected IOMMU page fault!\n");
-			pr_err("name = %s\n", drvdata->name);
-			pr_err("context = %s (%d)\n", ctx_drvdata->name,
-							ctx_drvdata->num);
-			pr_err("Interesting registers:\n");
-			__print_ctx_regs(drvdata,
-					ctx_drvdata->num, fsr);
+			//20150513, FAO-871, add "printk_ratelimit()" to prevent console crash due to too many logs. +++
+			if (printk_ratelimit()) {
+				pr_err("name = %s\n", drvdata->name);
+				pr_err("context = %s (%d)\n", ctx_drvdata->name,
+								ctx_drvdata->num);
+				pr_err("Interesting registers:\n");
+				__print_ctx_regs(drvdata,
+						ctx_drvdata->num, fsr);
+			}
+			//20150513, FAO-871, add "printk_ratelimit()" to prevent console crash due to too many logs. +++
 
 			if (ctx_drvdata->attached_domain) {
 				pagetable_phys = msm_iommu_iova_to_phys_soft(

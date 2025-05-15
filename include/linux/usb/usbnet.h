@@ -62,6 +62,7 @@ struct usbnet {
 	struct work_struct	bh_w;
 
 	struct work_struct	kevent;
+	struct semaphore	sem;   ///OEM
 	unsigned long		flags;
 #		define EVENT_TX_HALT	0
 #		define EVENT_RX_HALT	1

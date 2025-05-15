@@ -20,6 +20,8 @@
 #include <linux/spmi.h>
 #include <linux/spinlock.h>
 #include <linux/spmi.h>
+//@20150529, add FAO-12 Clear alarm Time Queue
+#include <linux/timerqueue.h> 
 
 /* RTC/ALARM Register offsets */
 #define REG_OFFSET_ALARM_RW	0x40
@@ -44,6 +46,23 @@
 
 #define TO_SECS(arr)		(arr[0] | (arr[1] << 8) | (arr[2] << 16) | \
 							(arr[3] << 24))
+
+/* Black Box */
+#define BBOX_RTC_READ_TIME_FAIL do {printk("BBox;%s: Read Time/Alarm fail\n", __func__); printk("BBox::UEC;18::0\n");} while (0);
+#define BBOX_RTC_SET_TIME_FAIL do {printk("BBox;%s: Set Time/Alarm fail\n", __func__); printk("BBox::UEC;18::1\n");} while (0);
+#define BBOX_RTC_PROBE_FAIL do {printk("BBox;%s: Probe fail\n", __func__); printk("BBox::UEC;18::2\n");} while (0);
+#define BBOX_RTC_ENABLE_FAIL do {printk("BBox;%s: Enable fail\n", __func__); printk("BBox::UEC;18::3\n");} while (0);
+
+#ifdef CONFIG_POWER_OFF_ALARM
+#define BOOT_TIME		30
+#endif
+
+#ifdef CONFIG_FIH_IPO
+#define IPO_BOOT_TIME	15
+#define IPO_CHECK_SILENT_SECS  3600
+#define IPO_SILENT_ALARM_BUFFER        180
+static int ipo_silent_flag = 0;
+#endif
 
 /* Module parameter to control power-on-alarm */
 static bool poweron_alarm;
@@ -224,6 +243,9 @@ rtc_rw_fail:
 	if (alarm_enabled)
 		spin_unlock_irqrestore(&rtc_dd->alarm_ctrl_lock, irq_flags);
 
+	if (rc)
+		BBOX_RTC_SET_TIME_FAIL;
+
 	return rc;
 }
 
@@ -240,6 +262,7 @@ qpnp_rtc_read_time(struct device *dev, struct rtc_time *tm)
 				NUM_8_BIT_RTC_REGS);
 	if (rc) {
 		dev_err(dev, "Read from RTC reg failed\n");
+		BBOX_RTC_READ_TIME_FAIL;
 		return rc;
 	}
 
@@ -251,6 +274,7 @@ qpnp_rtc_read_time(struct device *dev, struct rtc_time *tm)
 				rtc_dd->rtc_base + REG_OFFSET_RTC_READ, 1);
 	if (rc) {
 		dev_err(dev, "Read from RTC reg failed\n");
+		BBOX_RTC_READ_TIME_FAIL;
 		return rc;
 	}
 
@@ -260,6 +284,7 @@ qpnp_rtc_read_time(struct device *dev, struct rtc_time *tm)
 				NUM_8_BIT_RTC_REGS);
 		if (rc) {
 			dev_err(dev, "Read from RTC reg failed\n");
+			BBOX_RTC_READ_TIME_FAIL;
 			return rc;
 		}
 	}
@@ -271,6 +296,7 @@ qpnp_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	rc = rtc_valid_tm(tm);
 	if (rc) {
 		dev_err(dev, "Invalid time read from RTC\n");
+		BBOX_RTC_READ_TIME_FAIL;
 		return rc;
 	}
 
@@ -299,6 +325,7 @@ qpnp_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	rc = qpnp_rtc_read_time(dev, &rtc_tm);
 	if (rc) {
 		dev_err(dev, "Unable to read RTC time\n");
+		BBOX_RTC_SET_TIME_FAIL;
 		return -EINVAL;
 	}
 
@@ -342,6 +369,8 @@ qpnp_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 			alarm->time.tm_mon, alarm->time.tm_year);
 rtc_rw_fail:
 	spin_unlock_irqrestore(&rtc_dd->alarm_ctrl_lock, irq_flags);
+	if (rc)
+		BBOX_RTC_SET_TIME_FAIL;
 	return rc;
 }
 
@@ -358,6 +387,7 @@ qpnp_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 				NUM_8_BIT_RTC_REGS);
 	if (rc) {
 		dev_err(dev, "Read from ALARM reg failed\n");
+		BBOX_RTC_READ_TIME_FAIL;
 		return rc;
 	}
 
@@ -367,6 +397,7 @@ qpnp_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	rc = rtc_valid_tm(&alarm->time);
 	if (rc) {
 		dev_err(dev, "Invalid time read from RTC\n");
+		BBOX_RTC_READ_TIME_FAIL;
 		return rc;
 	}
 
@@ -397,6 +428,7 @@ qpnp_rtc_alarm_irq_enable(struct device *dev, unsigned int enabled)
 			rtc_dd->alarm_base + REG_OFFSET_ALARM_CTRL1, 1);
 	if (rc) {
 		dev_err(dev, "Write to ALARM control reg failed\n");
+		BBOX_RTC_ENABLE_FAIL;
 		goto rtc_rw_fail;
 	}
 
@@ -423,12 +455,23 @@ static struct rtc_class_ops qpnp_rtc_ops = {
 	.alarm_irq_enable = qpnp_rtc_alarm_irq_enable,
 };
 
+#ifdef CONFIG_FIH_IPO
+extern void fih_ipo_set_rtc_flag(void);
+extern int fih_ipo_get_suspend_state(void);
+extern int fih_ipo_get_usbchg_state(void);
+#endif
 static irqreturn_t qpnp_alarm_trigger(int irq, void *dev_id)
 {
 	struct qpnp_rtc *rtc_dd = dev_id;
 	u8 ctrl_reg;
 	int rc;
 	unsigned long irq_flags;
+
+#ifdef CONFIG_FIH_IPO
+    if (!ipo_silent_flag && fih_ipo_get_suspend_state()) {
+        fih_ipo_set_rtc_flag();
+    }
+#endif
 
 	rtc_update_irq(rtc_dd->rtc, 1, RTC_IRQF | RTC_AF);
 
@@ -462,6 +505,186 @@ rtc_alarm_handled:
 	return IRQ_HANDLED;
 }
 
+#ifdef CONFIG_POWER_OFF_ALARM
+static unsigned long poff_alarm_secs = 0;
+void set_poff_sec(long secs)
+{
+	poff_alarm_secs = secs;
+	pr_info("[%s] set poff alarm sec: %ld\n", __func__, poff_alarm_secs);
+}
+EXPORT_SYMBOL(set_poff_sec);
+
+ssize_t rtc_get_alarm_time(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	int rc;
+	u8 value[4];
+	unsigned long secs;
+	struct qpnp_rtc *rtc_dd = dev_get_drvdata(dev);
+
+#ifdef CONFIG_FIH_IPO
+	if (fih_ipo_get_usbchg_state()) {
+		if (poff_alarm_secs > IPO_BOOT_TIME)
+			return sprintf(buf, "%ld\n", poff_alarm_secs - IPO_BOOT_TIME);
+		else
+			return sprintf(buf, "0\n");
+	}
+#endif
+
+	rc = qpnp_read_wrapper(rtc_dd, value,
+				rtc_dd->alarm_base + REG_OFFSET_ALARM_RW,
+				NUM_8_BIT_RTC_REGS);
+	if (rc) {
+		dev_err(dev, "Read from ALARM reg failed\n");
+		return rc;
+	}
+
+	secs = TO_SECS(value);
+
+	return sprintf(buf, "%ld\n",secs);
+}
+
+ssize_t rtc_set_alarm_time(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	int rc;
+	u8 value[4], reg;
+	unsigned long secs, sub_poff_alarm_secs = 0;
+	struct qpnp_rtc *rtc_dd = dev_get_drvdata(dev);
+
+	sscanf(buf, "%ld\n", &sub_poff_alarm_secs);
+	pr_info("[%s] sub_poff_alarm_secs: %ld\n", __func__, sub_poff_alarm_secs);
+	if (sub_poff_alarm_secs <= 0) {
+		poff_alarm_secs = 0;
+		return count;
+	}
+
+	rc = qpnp_read_wrapper(rtc_dd, value,
+				rtc_dd->rtc_base + REG_OFFSET_RTC_READ,
+				NUM_8_BIT_RTC_REGS);
+	if (rc) {
+		dev_err(dev, "Read from RTC reg failed\n");
+		return rc;
+	}
+
+	/*
+	 * Read the LSB again and check if there has been a carry over
+	 * If there is, redo the read operation
+	 */
+	rc = qpnp_read_wrapper(rtc_dd, &reg,
+				rtc_dd->rtc_base + REG_OFFSET_RTC_READ, 1);
+	if (rc) {
+		dev_err(dev, "Read from RTC reg failed\n");
+		return rc;
+	}
+
+	if (reg < value[0]) {
+		rc = qpnp_read_wrapper(rtc_dd, value,
+				rtc_dd->rtc_base + REG_OFFSET_RTC_READ,
+				NUM_8_BIT_RTC_REGS);
+		if (rc) {
+			dev_err(dev, "Read from RTC reg failed\n");
+			return rc;
+		}
+	}
+
+	secs = TO_SECS(value);
+	poff_alarm_secs = secs + sub_poff_alarm_secs;
+	pr_info("[%s] save rtc:%ld, poff_alarm_secs: %ld\n", __func__, secs, poff_alarm_secs);
+
+	return count;
+}
+
+DEVICE_ATTR(rtcset, 0664, rtc_get_alarm_time, rtc_set_alarm_time);
+
+static int create_rtcset_attribute(struct spmi_device *spmi)
+{
+	int rc = 0;
+	rc = device_create_file(&spmi->dev, &dev_attr_rtcset);
+	if (rc < 0) {
+		pr_err("%s: Create attribute \"rtcset\" failed!! <%d>", __func__, rc);
+	}
+	return rc;
+}
+#endif
+//@20150529, add FAO-12 Clear alarm Time Queue
+ssize_t rtc_clear_alarm(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	int rc;
+	u8 value[4] = {0}, reg;
+	u8 value_test[4] = {0}, reg_test;
+	unsigned long irq_flags;
+	struct qpnp_rtc *rtc_dd = dev_get_drvdata(dev);
+	pr_info(" Disable RTC &Clear Alarm register \n");
+
+	qpnp_read_wrapper(rtc_dd, &reg_test,rtc_dd->alarm_base + REG_OFFSET_ALARM_CTRL1, 1);
+	qpnp_read_wrapper(rtc_dd, value_test,rtc_dd->alarm_base + REG_OFFSET_ALARM_RW, NUM_8_BIT_RTC_REGS);
+	
+	//printk("rtc_clear_alarm reg_test => %d\n",reg_test);
+	//printk("rtc_clear_alarm value_test[0] => %d\n",value_test[0]);
+	//printk("rtc_clear_alarm value_test[1] => %d\n",value_test[1]);
+	//printk("rtc_clear_alarm value_test[2] => %d\n",value_test[2]);
+	//printk("rtc_clear_alarm value_test[3] => %d\n",value_test[3]);
+	
+	spin_lock_irqsave(&rtc_dd->alarm_ctrl_lock, irq_flags);
+
+	/* Disable RTC alarms */
+	reg = rtc_dd->alarm_ctrl_reg1;
+	reg &= ~BIT_RTC_ALARM_ENABLE;
+	printk("rtc_clear_alarm alarm_base => %d\n",rtc_dd->alarm_base);
+        printk("rtc_clear_alarm reg => %d\n",reg);
+	rc = qpnp_write_wrapper(rtc_dd, &reg,
+			rtc_dd->alarm_base + REG_OFFSET_ALARM_CTRL1, 1);
+	if (rc) {
+		spin_unlock_irqrestore(&rtc_dd->alarm_ctrl_lock, irq_flags);
+		dev_err(rtc_dd->rtc_dev, "Disable RTC alarms failed\n");
+		return rc;
+	}
+	rtc_dd->alarm_ctrl_reg1 = reg;
+
+	/* Clear Alarm register */
+	rc = qpnp_write_wrapper(rtc_dd, value,
+			rtc_dd->alarm_base + REG_OFFSET_ALARM_RW,
+			NUM_8_BIT_RTC_REGS);
+	if (rc){
+		spin_unlock_irqrestore(&rtc_dd->alarm_ctrl_lock, irq_flags);
+		dev_err(rtc_dd->rtc_dev, "Clear Alarm register failed\n");
+		return rc;
+	}
+	spin_unlock_irqrestore(&rtc_dd->alarm_ctrl_lock, irq_flags);
+
+	/* Set ALARM_CLR bit */
+	printk("Set ALARM_CLR bit\n");
+	reg_test = 0x1;
+	rc = qpnp_write_wrapper(rtc_dd, &reg_test,
+			rtc_dd->alarm_base + REG_OFFSET_ALARM_CTRL2, 1);
+	
+	qpnp_read_wrapper(rtc_dd, &reg,rtc_dd->alarm_base + REG_OFFSET_ALARM_CTRL1, 1);
+	qpnp_read_wrapper(rtc_dd, value,rtc_dd->alarm_base + REG_OFFSET_ALARM_RW, NUM_8_BIT_RTC_REGS);
+	
+	//printk("rtc_clear_alarm reg_test => %d\n",reg);
+	//printk("rtc_clear_alarm value[0] => %d\n",value[0]);
+	//printk("rtc_clear_alarm value[1] => %d\n",value[1]);
+	//printk("rtc_clear_alarm value[2] => %d\n",value[2]);
+	//printk("rtc_clear_alarm value[3] => %d\n",value[3]);
+
+	//device_init_wakeup(dev, 0);
+	//free_irq(rtc_dd->rtc_alarm_irq, rtc_dd);
+	//rtc_device_unregister(rtc_dd->rtc);
+	alarmTimeQueueDelFtm();
+	
+	return count;
+}
+DEVICE_ATTR(clear_alarm, S_IWUSR | S_IWGRP, NULL, rtc_clear_alarm);
+
+static int create_clear_alarm_attribute(struct spmi_device *spmi)
+{
+	int rc = 0;
+	rc = device_create_file(&spmi->dev, &dev_attr_clear_alarm);
+	if (rc < 0) {
+		pr_err("%s: Create file \"clear_alarm\" failed!! <%d>", __func__, rc);
+	}
+	return rc;
+}
+
 static int qpnp_rtc_probe(struct spmi_device *spmi)
 {
 	int rc;
@@ -473,6 +696,7 @@ static int qpnp_rtc_probe(struct spmi_device *spmi)
 	rtc_dd = devm_kzalloc(&spmi->dev, sizeof(*rtc_dd), GFP_KERNEL);
 	if (rtc_dd == NULL) {
 		dev_err(&spmi->dev, "Unable to allocate memory!\n");
+		BBOX_RTC_PROBE_FAIL;
 		return -ENOMEM;
 	}
 
@@ -482,6 +706,7 @@ static int qpnp_rtc_probe(struct spmi_device *spmi)
 	if (rc && rc != -EINVAL) {
 		dev_err(&spmi->dev,
 			"Error reading rtc_write_enable property %d\n", rc);
+		BBOX_RTC_PROBE_FAIL;
 		return rc;
 	}
 
@@ -491,6 +716,7 @@ static int qpnp_rtc_probe(struct spmi_device *spmi)
 	if (rc && rc != -EINVAL) {
 		dev_err(&spmi->dev,
 			"Error reading rtc_alarm_powerup property %d\n", rc);
+		BBOX_RTC_PROBE_FAIL;
 		return rc;
 	}
 
@@ -606,6 +832,21 @@ static int qpnp_rtc_probe(struct spmi_device *spmi)
 	device_init_wakeup(&spmi->dev, 1);
 	enable_irq_wake(rtc_dd->rtc_alarm_irq);
 
+#ifdef CONFIG_POWER_OFF_ALARM
+	rc = create_rtcset_attribute(spmi);
+	if (rc < 0) {
+		pr_err("%s: Create attribute \"rtcset\" failed!! <%d>", __func__, rc);
+		goto fail_req_irq;
+	}
+#endif
+
+//@20150529, add FAO-12 Clear alarm Time Queue
+	rc = create_clear_alarm_attribute(spmi);
+	if (rc < 0) {
+		pr_err("%s: Create attribute \"clear_alarm\" failed!! <%d>", __func__, rc);
+		goto fail_req_irq;
+	}
+
 	dev_dbg(&spmi->dev, "Probe success !!\n");
 
 	return 0;
@@ -614,6 +855,8 @@ fail_req_irq:
 	rtc_device_unregister(rtc_dd->rtc);
 fail_rtc_enable:
 	dev_set_drvdata(&spmi->dev, NULL);
+	if (rc)
+		BBOX_RTC_PROBE_FAIL;
 
 	return rc;
 }
@@ -672,8 +915,182 @@ static void qpnp_rtc_shutdown(struct spmi_device *spmi)
 
 fail_alarm_disable:
 		spin_unlock_irqrestore(&rtc_dd->alarm_ctrl_lock, irq_flags);
+#ifdef CONFIG_POWER_OFF_ALARM
+	} else {
+		int enabled = 0;
+		unsigned long secs, secs_rtc = 0;
+		struct rtc_time rtc_tm;
+
+		secs = poff_alarm_secs;
+
+		/*
+		 * Read the current RTC time and verify if the alarm time is in the
+		 * past. If yes, return invalid
+		 */
+		rc = qpnp_rtc_read_time(rtc_dd->rtc_dev, &rtc_tm);
+		if (rc) {
+			dev_err(rtc_dd->rtc_dev, "Unable to read RTC time\n");
+			secs_rtc = 0;
+		}
+
+		rtc_tm_to_time(&rtc_tm, &secs_rtc);
+		if (secs > secs_rtc) {
+			enabled = 1;
+			secs -= BOOT_TIME;
+			if (secs < secs_rtc)
+				secs += BOOT_TIME;
+		} else {
+			enabled = 0;
+			secs = 0;
+			/* In Lolipop, alarm has the original power-off alarm,
+			thus return but doing nothing for normal power-off alarm.
+			We keep this code for our power-off charging alarm feature. */
+			return;
+		}
+		pr_info("[%s] enable:%d, current time: %ld, final alarm time: %ld\n", __func__, enabled, secs_rtc, secs);
+
+		value[0] = secs & 0xFF;
+		value[1] = (secs >> 8) & 0xFF;
+		value[2] = (secs >> 16) & 0xFF;
+		value[3] = (secs >> 24) & 0xFF;
+
+		spin_lock_irqsave(&rtc_dd->alarm_ctrl_lock, irq_flags);
+
+		rc = qpnp_write_wrapper(rtc_dd, value,
+					rtc_dd->alarm_base + REG_OFFSET_ALARM_RW,
+					NUM_8_BIT_RTC_REGS);
+		if (rc) {
+			dev_err(rtc_dd->rtc_dev, "Write to ALARM reg failed\n");
+			goto rtc_rw_fail;
+		}
+
+		reg = (enabled) ?
+				(rtc_dd->alarm_ctrl_reg1 | BIT_RTC_ALARM_ENABLE) :
+				(rtc_dd->alarm_ctrl_reg1 & ~BIT_RTC_ALARM_ENABLE);
+
+		rc = qpnp_write_wrapper(rtc_dd, &reg,
+				rtc_dd->alarm_base + REG_OFFSET_ALARM_CTRL1, 1);
+		if (rc) {
+			dev_err(rtc_dd->rtc_dev, "Write to ALARM cntrol reg failed\n");
+			goto rtc_rw_fail;
+		}
+
+		rtc_dd->alarm_ctrl_reg1 = reg;
+rtc_rw_fail:
+		spin_unlock_irqrestore(&rtc_dd->alarm_ctrl_lock, irq_flags);
+#endif
 	}
 }
+
+#if defined(CONFIG_FIH_MT_SLEEP) || defined(CONFIG_FIH_IPO)
+//extern int get_sleep_current_mode(void);
+static int qpnp_rtc_resume(struct device *dev)
+{
+	return 0;
+}
+
+static int qpnp_rtc_suspend(struct device *dev)
+{
+	u8 value[4] = {0};
+	u8 reg;
+	int rc = 0;
+	unsigned long irq_flags;
+	struct qpnp_rtc *rtc_dd = dev_get_drvdata(dev);
+	int mt_flag = 0, ipo_flag = 0;
+	int enabled = 0;
+	unsigned long secs, secs_rtc = 0;
+	struct rtc_time rtc_tm;
+
+#ifdef CONFIG_FIH_MT_SLEEP
+	mt_flag = get_sleep_current_mode();
+#endif
+
+#ifdef CONFIG_FIH_IPO
+	ipo_flag = fih_ipo_get_suspend_state();
+	ipo_silent_flag = 0;
+#endif
+
+	if (!mt_flag && !ipo_flag)
+		return 0;
+
+	secs = poff_alarm_secs;
+
+	/*
+	 * Read the current RTC time and verify if the alarm time is in the
+	 * past. If yes, return invalid
+	 */
+	rc = qpnp_rtc_read_time(rtc_dd->rtc_dev, &rtc_tm);
+	if (rc) {
+		dev_err(rtc_dd->rtc_dev, "Unable to read RTC time\n");
+		secs_rtc = 0;
+	}
+
+	rtc_tm_to_time(&rtc_tm, &secs_rtc);
+	if (secs > secs_rtc) {
+		enabled = 1;
+		if (ipo_flag) {
+			secs -= IPO_BOOT_TIME;
+			if (secs < secs_rtc)
+				secs += IPO_BOOT_TIME;
+		}
+	} else {
+		enabled = 0;
+		secs = 0;
+	}
+
+	if (ipo_flag) {
+		if (!enabled || ((secs + IPO_BOOT_TIME - secs_rtc) > IPO_CHECK_SILENT_SECS + IPO_SILENT_ALARM_BUFFER)) {
+			enabled = 1;
+			secs = secs_rtc + IPO_CHECK_SILENT_SECS;
+			ipo_silent_flag = 1;
+		}
+	}
+#ifdef CONFIG_FIH_IPO
+	pr_info("[%s] enable:%d, silent:%d, current time: %ld, final alarm time: %ld\n", __func__,
+			enabled, ipo_silent_flag, secs_rtc, secs);
+#else
+	pr_info("[%s] enable:%d, current time: %ld, final alarm time: %ld\n", __func__,
+			enabled, secs_rtc, secs);
+#endif
+
+	value[0] = secs & 0xFF;
+	value[1] = (secs >> 8) & 0xFF;
+	value[2] = (secs >> 16) & 0xFF;
+	value[3] = (secs >> 24) & 0xFF;
+
+	spin_lock_irqsave(&rtc_dd->alarm_ctrl_lock, irq_flags);
+
+	rc = qpnp_write_wrapper(rtc_dd, value,
+				rtc_dd->alarm_base + REG_OFFSET_ALARM_RW,
+				NUM_8_BIT_RTC_REGS);
+	if (rc) {
+		dev_err(rtc_dd->rtc_dev, "Write to ALARM reg failed\n");
+		goto rtc_rw_fail2;
+	}
+
+	reg = (enabled) ?
+			(rtc_dd->alarm_ctrl_reg1 | BIT_RTC_ALARM_ENABLE) :
+			(rtc_dd->alarm_ctrl_reg1 & ~BIT_RTC_ALARM_ENABLE);
+
+	rc = qpnp_write_wrapper(rtc_dd, &reg,
+			rtc_dd->alarm_base + REG_OFFSET_ALARM_CTRL1, 1);
+	if (rc) {
+		dev_err(rtc_dd->rtc_dev, "Write to ALARM cntrol reg failed\n");
+		goto rtc_rw_fail2;
+	}
+
+	rtc_dd->alarm_ctrl_reg1 = reg;
+rtc_rw_fail2:
+	spin_unlock_irqrestore(&rtc_dd->alarm_ctrl_lock, irq_flags);
+
+	return rc;
+}
+
+static const struct dev_pm_ops qpnp_rtc_pm_ops = {
+	.resume		= qpnp_rtc_resume,
+	.suspend	= qpnp_rtc_suspend,
+};
+#endif /* end of CONFIG_FIH_MT_SLEEP or CONFIG_FIH_IPO */
 
 static struct of_device_id spmi_match_table[] = {
 	{
@@ -690,6 +1107,9 @@ static struct spmi_driver qpnp_rtc_driver = {
 		.name   = "qcom,qpnp-rtc",
 		.owner  = THIS_MODULE,
 		.of_match_table = spmi_match_table,
+#if defined(CONFIG_FIH_MT_SLEEP) || defined(CONFIG_FIH_IPO)
+		.pm		= &qpnp_rtc_pm_ops,
+#endif
 	},
 };
 

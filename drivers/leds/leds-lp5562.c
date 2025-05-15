@@ -17,6 +17,7 @@
 #include <linux/leds.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/of.h>
 #include <linux/platform_data/leds-lp55xx.h>
 #include <linux/slab.h>
 
@@ -90,6 +91,7 @@
 #define LP5562_ENG_SEL_PWM		0
 #define LP5562_ENG_FOR_RGB_M		0x3F
 #define LP5562_ENG_SEL_RGB		0x1B	/* R:ENG1, G:ENG2, B:ENG3 */
+#define LP5562_ENG_SEL_W		0x40	/* W:ENG1 */
 #define LP5562_ENG_FOR_W_M		0xC0
 #define LP5562_ENG1_FOR_W		0x40	/* W:ENG1 */
 #define LP5562_ENG2_FOR_W		0x80	/* W:ENG2 */
@@ -101,6 +103,55 @@
 #define LP5562_CMD_RUN			0x2A
 #define LP5562_CMD_DIRECT		0x3F
 #define LP5562_PATTERN_OFF		0
+
+// add for led predefine pattern start
+ /* mode_1: blinking data */
+  static const u8 mode_1[] = {0x40, 0x64, 0x44, 0x00, 0x40, 0x00, 0x43, 0xE3};
+
+  /* mode_2: always on */
+  static const u8 mode_2[] = { 0x40, 0x64, 0x46, 0x00, 0x40, 0x00, 0x73, 0x00, 0x4D, 0x00 };
+
+
+  /* mode_3*/
+//  static const u8 mode_3[] = { 0x00, 0x10,0x20,0x30,0x40, 0x50,0x60,0x70,0x80, 0x90,0xa0,0xb0,0xc0, 0xd0,0xe0,0xf0};
+ // static const u8 mode_3[] = { 0x00, 0x10,0x20,0x30,0x40, 0x50,0x60,0x70,0x80, 0x90,0xa0,0xb0,0xc0, 0xd0,0xe0,0xf0};
+  static const u8 mode_3[] = { 0x00, 0x10,0x20,0x30,0x40, 0x50,0x60,0xff,0x60, 0x50,0x40,0x30,0x20, 0x10,0x00};
+
+  struct lp55xx_predef_pattern board_led_patterns[] = {
+  	{
+		.g = mode_1,
+		.size_g = ARRAY_SIZE(mode_1),
+  	},
+  	{
+		.b = mode_1,
+		.size_b = ARRAY_SIZE(mode_1),
+  	},
+  	{
+		.r = mode_1,
+		.size_r = ARRAY_SIZE(mode_1),
+  	},
+  	{
+		.w = mode_1,
+		.size_w = ARRAY_SIZE(mode_1),
+  	},
+  	{
+		.g = mode_2,
+		.size_g = ARRAY_SIZE(mode_2),
+  	},
+  	{
+		.b = mode_2,
+		.size_b = ARRAY_SIZE(mode_2),
+  	},
+  	{
+		.r = mode_2,
+		.size_r = ARRAY_SIZE(mode_2),
+  	},
+  	{
+		.w = mode_2,
+		.size_w = ARRAY_SIZE(mode_2),
+  	},
+  };
+// add for led predefine pattern off
 
 static inline void lp5562_wait_opmode_done(void)
 {
@@ -348,14 +399,17 @@ static inline bool _is_pc_overflow(struct lp55xx_predef_pattern *ptn)
 {
 	return (ptn->size_r >= LP5562_PROGRAM_LENGTH ||
 		ptn->size_g >= LP5562_PROGRAM_LENGTH ||
-		ptn->size_b >= LP5562_PROGRAM_LENGTH);
+		ptn->size_b >= LP5562_PROGRAM_LENGTH ||
+		ptn->size_w >= LP5562_PROGRAM_LENGTH
+		);
 }
 
 static int lp5562_run_predef_led_pattern(struct lp55xx_chip *chip, int mode)
 {
 	struct lp55xx_predef_pattern *ptn;
 	int i;
-
+	
+	//printk("into lp5562_run_predef_led_pattern and mode %d\n",mode);
 	if (mode == LP5562_PATTERN_OFF) {
 		lp5562_run_engine(chip, false);
 		return 0;
@@ -369,8 +423,17 @@ static int lp5562_run_predef_led_pattern(struct lp55xx_chip *chip, int mode)
 
 	lp5562_stop_engine(chip);
 
-	/* Set LED map as RGB */
-	lp55xx_write(chip, LP5562_REG_ENG_SEL, LP5562_ENG_SEL_RGB);
+	/* Set LED map option - W or RGB */
+	if (ptn->w)
+	{
+		//printk("into lp5562_run_predef_led_pattern and mode ptn->w\n");
+		lp55xx_write(chip, LP5562_REG_ENG_SEL, LP5562_ENG_SEL_W);
+	}
+	else
+	{
+		//printk("into lp5562_run_predef_led_pattern and mode ptn->RGB\n");
+		lp55xx_write(chip, LP5562_REG_ENG_SEL, LP5562_ENG_SEL_RGB);
+	}
 
 	/* Load engines */
 	for (i = LP55XX_ENGINE_1; i <= LP55XX_ENGINE_3; i++) {
@@ -387,12 +450,18 @@ static int lp5562_run_predef_led_pattern(struct lp55xx_chip *chip, int mode)
 	lp55xx_write(chip, LP5562_REG_PROG_MEM_ENG3 + 1, 0);
 
 	/* Program engines */
-	lp5562_write_program_memory(chip, LP5562_REG_PROG_MEM_ENG1,
-				ptn->r, ptn->size_r);
-	lp5562_write_program_memory(chip, LP5562_REG_PROG_MEM_ENG2,
-				ptn->g, ptn->size_g);
-	lp5562_write_program_memory(chip, LP5562_REG_PROG_MEM_ENG3,
-				ptn->b, ptn->size_b);
+	if (ptn->w) {
+		/* W uses engine 1 */
+		lp5562_write_program_memory(chip, LP5562_REG_PROG_MEM_ENG1,
+		ptn->w, ptn->size_w);
+	} else {
+		lp5562_write_program_memory(chip, LP5562_REG_PROG_MEM_ENG1,
+			ptn->r, ptn->size_r);
+		lp5562_write_program_memory(chip, LP5562_REG_PROG_MEM_ENG2,
+			ptn->g, ptn->size_g);
+		lp5562_write_program_memory(chip, LP5562_REG_PROG_MEM_ENG3,
+			ptn->b, ptn->size_b);
+	}
 
 	/* Run engines */
 	lp5562_run_engine(chip, true);
@@ -477,8 +546,8 @@ static ssize_t lp5562_store_engine_mux(struct device *dev,
 	return len;
 }
 
-static DEVICE_ATTR(led_pattern, S_IWUSR, NULL, lp5562_store_pattern);
-static DEVICE_ATTR(engine_mux, S_IWUSR, NULL, lp5562_store_engine_mux);
+static LP55XX_DEV_ATTR_WO(led_pattern, lp5562_store_pattern);
+static LP55XX_DEV_ATTR_WO(engine_mux, lp5562_store_engine_mux);
 
 static struct attribute *lp5562_attributes[] = {
 	&dev_attr_led_pattern.attr,
@@ -515,12 +584,21 @@ static int lp5562_probe(struct i2c_client *client,
 	int ret;
 	struct lp55xx_chip *chip;
 	struct lp55xx_led *led;
-	struct lp55xx_platform_data *pdata = client->dev.platform_data;
-
-	if (!pdata) {
+	struct lp55xx_platform_data *pdata;
+	struct device_node *np = client->dev.of_node;
+	printk("jason add lp5562_probe\n");
+	if (!dev_get_platdata(&client->dev)) {
+		printk("jason add lp5562_probe 1\n");
+		if (np) {
+			ret = lp55xx_of_populate_pdata(&client->dev, np);
+			if (ret < 0)
+				return ret;
+		} else {
 		dev_err(&client->dev, "no platform data\n");
 		return -EINVAL;
 	}
+	}
+	pdata = dev_get_platdata(&client->dev);
 
 	chip = devm_kzalloc(&client->dev, sizeof(*chip), GFP_KERNEL);
 	if (!chip)
@@ -542,6 +620,11 @@ static int lp5562_probe(struct i2c_client *client,
 	ret = lp55xx_init_device(chip);
 	if (ret)
 		goto err_init;
+
+// add for led predefine pattern start
+	chip->pdata->patterns = board_led_patterns;
+	chip->pdata->num_patterns = ARRAY_SIZE(board_led_patterns);
+// add for led predefine pattern end
 
 	ret = lp55xx_register_leds(led, chip);
 	if (ret)
@@ -583,9 +666,19 @@ static const struct i2c_device_id lp5562_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, lp5562_id);
 
+#ifdef CONFIG_OF
+static const struct of_device_id of_lp5562_leds_match[] = {
+	{ .compatible = "ti,lp5562", },
+	{},
+};
+
+MODULE_DEVICE_TABLE(of, of_lp5562_leds_match);
+#endif
+
 static struct i2c_driver lp5562_driver = {
 	.driver = {
 		.name	= "lp5562",
+		.of_match_table = of_match_ptr(of_lp5562_leds_match),
 	},
 	.probe		= lp5562_probe,
 	.remove		= lp5562_remove,

@@ -315,6 +315,7 @@ struct msm_otg_platform_data {
 	int switch_sel_gpio;
 	bool phy_dvdd_always_on;
 	struct clk *system_clk;
+	int usb_ethernet_reset_gpio;///OEM
 };
 
 /* phy related flags */

@@ -51,7 +51,8 @@ KERNEL_OUT := $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ
 KERNEL_CONFIG := $(KERNEL_OUT)/.config
 
 ifeq ($(KERNEL_DEFCONFIG)$(wildcard $(KERNEL_CONFIG)),)
-$(error Kernel configuration not defined, cannot build kernel)
+# Use warning instead of error to avoid emulator build error, fihtdcCode@20150610 AlanChiu
+$(warning Kernel configuration not defined, cannot build kernel)
 else
 
 ifeq ($(TARGET_USES_UNCOMPRESSED_KERNEL),true)

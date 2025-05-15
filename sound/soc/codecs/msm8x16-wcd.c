@@ -112,6 +112,11 @@ enum {
 #define VOLTAGE_CONVERTER(value, min_value, step_size)\
 	((value - min_value)/step_size);
 
+#define BBOX_WCD_SPMI_PROBE_FAILED do {printk("BBox;%s: SPMI probe fail\n", __func__); printk("BBox::UEC;2::1\n");} while(0);
+#define BBOX_WCD_PROBE_ALLCO_FAIL do {printk("BBox;%s: WCD probe memory alloc error!\n", __func__); printk("BBox::UEC;2::3\n");} while (0);
+#define BBOX_WCD_PROBE_HWDEP_FAIL do {printk("BBox;%s: hwdep failed %d\n", __func__, ret); printk("BBox::UEC;2::3\n");} while (0);
+#define BBOX_WCD_PROBE_MODEM_FAIL do {printk("BBox;%s: register modem state notifier failed\n", __func__); printk("BBox::UEC;2::3\n");} while (0);
+
 enum {
 	AIF1_PB = 0,
 	AIF1_CAP,
@@ -131,6 +136,11 @@ enum {
 static const DECLARE_TLV_DB_SCALE(digital_gain, 0, 1, 0);
 static const DECLARE_TLV_DB_SCALE(analog_gain, 0, 25, 1);
 static struct snd_soc_dai_driver msm8x16_wcd_i2s_dai[];
+
+/* Rayyou-popnoise-00+{ */
+bool current_ext_spk_pa_state = false;
+static int HPH_switch_en_flag = 0;
+/* Rayyou-popnoise-00+} */
 
 #define MSM8X16_WCD_ACQUIRE_LOCK(x) \
 	mutex_lock_nested(&x, SINGLE_DEPTH_NESTING);
@@ -443,6 +453,18 @@ void msm8x16_wcd_spk_ext_pa_cb(
 	pr_debug("%s: Enter\n", __func__);
 	msm8x16_wcd->codec_spk_ext_pa_cb = codec_spk_ext_pa;
 }
+
+/* headphoneSwitch-00+{ */
+void msm8x16_wcd_headphone_switch(
+		int (*codec_headphone_switch)(struct snd_soc_codec *codec,
+			int enable), struct snd_soc_codec *codec)
+{
+	struct msm8x16_wcd_priv *msm8x16_wcd = snd_soc_codec_get_drvdata(codec);
+
+	pr_debug("%s: Enter\n", __func__);
+	msm8x16_wcd->codec_headphone_switch_cb = codec_headphone_switch;
+}
+/* headphoneSwitch-00+} */
 
 static void msm8x16_wcd_compute_impedance(struct snd_soc_codec *codec, s16 l,
 				s16 r, uint32_t *zl, uint32_t *zr, bool high)
@@ -2215,8 +2237,8 @@ static int msm8x16_wcd_ext_spk_boost_set(struct snd_kcontrol *kcontrol,
 	default:
 		return -EINVAL;
 	}
-	dev_dbg(codec->dev, "%s: msm8x16_wcd->spk_boost_set = %d\n",
-		__func__, msm8x16_wcd->spk_boost_set);
+	dev_dbg(codec->dev, "%s: msm8x16_wcd->ext_spk_boost_set = %d\n",
+		__func__, msm8x16_wcd->ext_spk_boost_set);
 	return 0;
 }
 static int msm8x16_wcd_get_iir_enable_audio_mixer(
@@ -2702,6 +2724,12 @@ static const char * const ext_spk_text[] = {
 	"Off", "On"
 };
 
+/* headphoneSwitch-00+{ */
+static const char * const headphone_sw_text[] = {
+	"Off", "On"
+};
+/* headphoneSwitch-00+} */
+
 static const char * const wsa_spk_text[] = {
 	"ZERO", "WSA"
 };
@@ -2719,6 +2747,12 @@ static const struct soc_enum adc2_enum =
 
 static const struct soc_enum ext_spk_enum =
 	SOC_ENUM_SINGLE(0, 0, ARRAY_SIZE(ext_spk_text), ext_spk_text);
+
+/* headphoneSwitch-00+{ */
+static const struct soc_enum headphone_sw_enum =
+	SOC_ENUM_SINGLE(SND_SOC_NOPM, 0,
+		ARRAY_SIZE(headphone_sw_text), headphone_sw_text);
+/* headphoneSwitch-00+} */
 
 static const struct soc_enum wsa_spk_enum =
 	SOC_ENUM_SINGLE(0, 0, ARRAY_SIZE(wsa_spk_text), wsa_spk_text);
@@ -2803,6 +2837,12 @@ static const struct soc_enum iir2_inp1_mux_enum =
 
 static const struct snd_kcontrol_new ext_spk_mux =
 	SOC_DAPM_ENUM_VIRT("Ext Spk Switch Mux", ext_spk_enum);
+
+/* headphoneSwitch-00+{ */
+static const struct snd_kcontrol_new headphone_sw_mux =
+	SOC_DAPM_ENUM_VIRT("Headphone SW Switch Mux", headphone_sw_enum);
+	//SOC_DAPM_ENUM("Headphone SW Switch Mux", headphone_sw_enum);
+/* headphoneSwitch-00+} */
 
 static const struct snd_kcontrol_new rx_mix1_inp1_mux =
 	SOC_DAPM_ENUM("RX1 MIX1 INP1 Mux", rx_mix1_inp1_chain_enum);
@@ -3425,7 +3465,7 @@ static int msm8x16_wcd_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 	char *external_text = "External";
 	bool micbias2;
 
-	dev_dbg(codec->dev, "%s %d\n", __func__, event);
+	dev_dbg(codec->dev, "%s reg(0x%x) name(%s) %d\n", __func__, w->reg, w->name, event);
 	switch (w->reg) {
 	case MSM8X16_WCD_A_ANALOG_MICB_1_EN:
 	case MSM8X16_WCD_A_ANALOG_MICB_2_EN:
@@ -4156,8 +4196,14 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"HEADPHONE", NULL, "HPHR PA"},
 
 	{"Ext Spk", NULL, "Ext Spk Switch"},
-	{"Ext Spk Switch", "On", "HPHL PA"},
+	//{"Ext Spk Switch", "On", "HPHL PA"},
 	{"Ext Spk Switch", "On", "HPHR PA"},
+
+	/* headphoneSwitch-00+{ */
+	{"Headphone SW", NULL, "Headphone SW Switch"},
+	{"Headphone SW Switch", "On", "HPHL PA"},
+	{"Headphone SW Switch", "On", "HPHR PA"},
+	/* headphoneSwitch-00+} */
 
 	{"HPHL PA", NULL, "HPHL"},
 	{"HPHR PA", NULL, "HPHR"},
@@ -4603,16 +4649,57 @@ static int msm8x16_wcd_codec_enable_spk_ext_pa(struct snd_soc_dapm_widget *w,
 			"%s: enable external speaker PA\n", __func__);
 		if (msm8x16_wcd->codec_spk_ext_pa_cb)
 			msm8x16_wcd->codec_spk_ext_pa_cb(codec, 1);
+
+		/* popnoise-00+{ */
+		current_ext_spk_pa_state = true;
+		/* popnoise-00+} */
 		break;
 	case SND_SOC_DAPM_PRE_PMD:
 		dev_dbg(w->codec->dev,
 			"%s: enable external speaker PA\n", __func__);
 		if (msm8x16_wcd->codec_spk_ext_pa_cb)
 			msm8x16_wcd->codec_spk_ext_pa_cb(codec, 0);
+
+		/* popnoise-00+{ */
+		current_ext_spk_pa_state = false;
+		/* popnoise-00+} */
 		break;
 	}
 	return 0;
 }
+
+
+/* headphoneSwitch-00+{ */
+static int msm8x16_wcd_codec_enable_headphone_switch(struct snd_soc_dapm_widget *w,
+		struct snd_kcontrol *kcontrol, int event)
+{
+	struct snd_soc_codec *codec = w->codec;
+	struct msm8x16_wcd_priv *msm8x16_wcd = snd_soc_codec_get_drvdata(codec);
+
+	dev_dbg(codec->dev, "%s: %s event = %d\n", __func__, w->name, event);
+	switch (event) {
+	case SND_SOC_DAPM_POST_PMU:
+		dev_dbg(w->codec->dev,
+			"%s: enable headphone switch\n", __func__);
+
+		if (msm8x16_wcd->codec_headphone_switch_cb)
+			msm8x16_wcd->codec_headphone_switch_cb(codec, 1);
+
+		HPH_switch_en_flag = 1;
+		break;
+	case SND_SOC_DAPM_PRE_PMD:
+		dev_dbg(w->codec->dev,
+			"%s: disable headphone switch\n", __func__);
+
+		if (msm8x16_wcd->codec_headphone_switch_cb)
+			msm8x16_wcd->codec_headphone_switch_cb(codec, 0);
+
+		HPH_switch_en_flag = 0;
+		break;
+	}
+	return 0;
+}
+/* headphoneSwitch-00+} */
 
 static int msm8x16_wcd_codec_enable_ear_pa(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
@@ -4699,6 +4786,10 @@ static const struct snd_soc_dapm_widget msm8x16_wcd_dapm_widgets[] = {
 
 	SND_SOC_DAPM_SPK("Ext Spk", msm8x16_wcd_codec_enable_spk_ext_pa),
 
+	/* headphoneSwitch-00+{ */
+	SND_SOC_DAPM_HP("Headphone SW", msm8x16_wcd_codec_enable_headphone_switch),
+	/* headphoneSwitch-00+} */
+
 	SND_SOC_DAPM_OUTPUT("HEADPHONE"),
 	SND_SOC_DAPM_PGA_E("HPHL PA", MSM8X16_WCD_A_ANALOG_RX_HPH_CNP_EN,
 		5, 0, NULL, 0,
@@ -4747,6 +4838,12 @@ static const struct snd_soc_dapm_widget msm8x16_wcd_dapm_widgets[] = {
 
 	SND_SOC_DAPM_VIRT_MUX("Ext Spk Switch", SND_SOC_NOPM, 0, 0,
 		&ext_spk_mux),
+
+  /* headphoneSwitch-00+{ */
+	//SND_SOC_DAPM_MUX("Headphone SW Switch", SND_SOC_NOPM, 0, 0,
+	SND_SOC_DAPM_VIRT_MUX("Headphone SW Switch", SND_SOC_NOPM, 0, 0,
+		&headphone_sw_mux),
+	/* headphoneSwitch-00+} */
 
 	SND_SOC_DAPM_MIXER("RX1 MIX1", SND_SOC_NOPM, 0, 0, NULL, 0),
 	SND_SOC_DAPM_MIXER("RX2 MIX1", SND_SOC_NOPM, 0, 0, NULL, 0),
@@ -5315,6 +5412,9 @@ static void msm8x16_wcd_set_micb_v(struct snd_soc_codec *codec)
 			(u32)pdata->micbias.cfilt1_mv, reg_val);
 	snd_soc_update_bits(codec, MSM8X16_WCD_A_ANALOG_MICB_1_VAL,
 			0xF8, (reg_val << 3));
+	/* 20150602, add to disable BIAS1 PULLUP_EN for MEMS-type mic1/mic2*/
+	snd_soc_update_bits(codec, MSM8X16_WCD_A_ANALOG_MICB_1_INT_RBIAS,
+			0x41, 0x00);
 }
 
 static void msm8x16_wcd_set_boost_v(struct snd_soc_codec *codec)
@@ -5373,6 +5473,7 @@ static int msm8x16_wcd_codec_probe(struct snd_soc_codec *codec)
 	msm8x16_wcd_priv = kzalloc(sizeof(struct msm8x16_wcd_priv), GFP_KERNEL);
 	if (!msm8x16_wcd_priv) {
 		dev_err(codec->dev, "Failed to allocate private data\n");
+                BBOX_WCD_PROBE_ALLCO_FAIL;
 		return -ENOMEM;
 	}
 
@@ -5395,6 +5496,7 @@ static int msm8x16_wcd_codec_probe(struct snd_soc_codec *codec)
 	if (msm8x16_wcd->dig_base == NULL) {
 		dev_err(codec->dev, "%s ioremap failed\n", __func__);
 		kfree(msm8x16_wcd_priv);
+                BBOX_WCD_PROBE_ALLCO_FAIL;
 		return -ENOMEM;
 	}
 	msm8x16_wcd_priv->spkdrv_reg =
@@ -5457,6 +5559,7 @@ static int msm8x16_wcd_codec_probe(struct snd_soc_codec *codec)
 		dev_err(codec->dev, "Failed to allocate fw_data\n");
 		iounmap(msm8x16_wcd->dig_base);
 		kfree(msm8x16_wcd_priv);
+                BBOX_WCD_PROBE_ALLCO_FAIL;
 		return -ENOMEM;
 	}
 
@@ -5468,6 +5571,7 @@ static int msm8x16_wcd_codec_probe(struct snd_soc_codec *codec)
 		iounmap(msm8x16_wcd->dig_base);
 		kfree(msm8x16_wcd_priv->fw_data);
 		kfree(msm8x16_wcd_priv);
+                BBOX_WCD_PROBE_HWDEP_FAIL;
 		return ret;
 	}
 
@@ -5494,6 +5598,7 @@ static int msm8x16_wcd_codec_probe(struct snd_soc_codec *codec)
 		kfree(msm8x16_wcd_priv->fw_data);
 		kfree(msm8x16_wcd_priv);
 		registered_codec = NULL;
+                BBOX_WCD_PROBE_MODEM_FAIL;
 		return -ENOMEM;
 	}
 	return 0;
@@ -5614,6 +5719,11 @@ int msm8x16_wcd_suspend(struct snd_soc_codec *codec)
 		mutex_unlock(&pdata->cdc_mclk_mutex);
 	}
 	msm8x16_wcd_disable_static_supplies_to_optimum(msm8x16, msm8x16_pdata);
+	/*20150606, Add boost_bp_pin for boost BYPASS mode, according to page24 of 80-NP409-5B*/
+	if (!IS_ERR_OR_NULL(pdata->ear_ext_boost_sus)) {
+		if (pinctrl_select_state(pdata->pinctrl, pdata->ear_ext_boost_sus))
+			pr_err("Error pinctrl_select_state(%s) err\n","ear_ext_boost_sus");
+	}
 	return 0;
 }
 
@@ -5625,6 +5735,11 @@ int msm8x16_wcd_resume(struct snd_soc_codec *codec)
 
 	pdata = snd_soc_card_get_drvdata(codec->card);
 	msm8x16_wcd_enable_static_supplies_to_optimum(msm8x16, msm8x16_pdata);
+	/*20150606, Add boost_bp_pin for boost BYPASS mode, according to page24 of 80-NP409-5B*/
+	if (!IS_ERR_OR_NULL(pdata->ear_ext_boost_act)) {
+		if (pinctrl_select_state(pdata->pinctrl, pdata->ear_ext_boost_act))
+			pr_err("Error pinctrl_select_state(%s) err\n","ear_ext_boost_act");
+	}
 	return 0;
 }
 
@@ -5897,6 +6012,7 @@ static int msm8x16_wcd_spmi_probe(struct spmi_device *spmi)
 		dev_err(&spmi->dev,
 			"%s:snd_soc_register_codec failed with error %d\n",
 			__func__, ret);
+			BBOX_WCD_SPMI_PROBE_FAILED;
 	} else {
 		goto rtn;
 	}

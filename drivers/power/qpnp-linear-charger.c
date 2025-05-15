@@ -25,6 +25,7 @@
 #include <linux/bitops.h>
 #include <linux/leds.h>
 #include <linux/debugfs.h>
+#include <fih/hwid.h>
 
 #define CREATE_MASK(NUM_BITS, POS) \
 	((unsigned char) (((1 << (NUM_BITS)) - 1) << (POS)))
@@ -129,7 +130,18 @@
 
 #define QPNP_CHARGER_DEV_NAME	"qcom,qpnp-linear-charger"
 
+/* definiation */
+#define FAKE_DEFAULE	0xFFFF
+
 /* usb_interrupts */
+
+#define POC_CHECK_TEMP_PERIOD_MS	10000 // add for fih discharging requirement
+
+/* bbs log */
+#define QPNPCHG_PROBE_ERROR do {printk("BBox;%s: Probe error\n", __func__); printk("BBox::UEC;11::0\n");} while (0)
+#define QPNPCHG_BATTERY_MISSING_ERROR do {printk("BBox;%s: Battery missing\n", __func__); printk("BBox::UEC;11::2\n");} while (0)
+#define CHARGER_READ_ERROR	do {printk("BBox;%s: charger read failed\n", __func__); printk("BBox::UEC;11::3\n");} while (0)
+#define CHARGER_WRITE_ERROR	do {printk("BBox;%s: charger write failed\n", __func__); printk("BBox::UEC;11::4\n");} while (0)
 
 struct qpnp_lbc_irq {
 	int		irq;
@@ -206,10 +218,18 @@ static enum power_supply_property msm_batt_power_props[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_CAPACITY,
 	POWER_SUPPLY_PROP_CURRENT_NOW,
+	POWER_SUPPLY_PROP_INPUT_CURRENT_MAX, // add for FTM
 	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_COOL_TEMP,
 	POWER_SUPPLY_PROP_WARM_TEMP,
 	POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL,
+	POWER_SUPPLY_PROP_TECHNOLOGY, // add for FAO-412
+	POWER_SUPPLY_PROP_MANUFACTURER, // add for Battery ID
+// add for Power Monitor {{
+	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
+	POWER_SUPPLY_PROP_CHARGE_FULL,
+	POWER_SUPPLY_PROP_CYCLE_COUNT,
+// add for Power Monitor }}
 };
 
 static char *pm_batt_supplied_to[] = {
@@ -356,6 +376,7 @@ struct qpnp_lbc_chip {
 	unsigned int			cfg_tchg_mins;
 	unsigned int			chg_failed_count;
 	unsigned int			supported_feature_flag;
+	unsigned int			cfg_ibat_max; //  add for usb charging current
 	int				cfg_bpd_detection;
 	int				cfg_warm_bat_decidegc;
 	int				cfg_cool_bat_decidegc;
@@ -391,10 +412,20 @@ struct qpnp_lbc_chip {
 	struct led_classdev		led_cdev;
 	struct dentry			*debug_root;
 
+	struct delayed_work		fih_temp_work; // add for fih discharging requirement
+	int fih_temp_work_cancel;
+	int ftm_mode; // add for FTM
+	int batt_unknown; // add for Battery ID
+	int				fake_temp; // 20150423 for FAKE Temp
+	int				fake_fcc;
+	int				fake_cc;
 	/* parallel-chg params */
 	struct power_supply		parallel_psy;
 	struct delayed_work		parallel_work;
 };
+
+static bool tchg_timer_expired = false;
+static int tchg_timer_sdp_counters = 0;
 
 static void qpnp_lbc_enable_irq(struct qpnp_lbc_chip *chip,
 					struct qpnp_lbc_irq *irq)
@@ -433,8 +464,11 @@ static int __qpnp_lbc_read(struct spmi_device *spmi, u16 base,
 
 	rc = spmi_ext_register_readl(spmi->ctrl, spmi->sid, base, val, count);
 	if (rc)
+	{
+		CHARGER_READ_ERROR;
 		pr_err("SPMI read failed base=0x%02x sid=0x%02x rc=%d\n",
 				base, spmi->sid, rc);
+	}
 
 	return rc;
 }
@@ -447,8 +481,11 @@ static int __qpnp_lbc_write(struct spmi_device *spmi, u16 base,
 	rc = spmi_ext_register_writel(spmi->ctrl, spmi->sid, base, val,
 					count);
 	if (rc)
+	{
+		CHARGER_WRITE_ERROR;
 		pr_err("SPMI write failed base=0x%02x sid=0x%02x rc=%d\n",
 				base, spmi->sid, rc);
+	}
 
 	return rc;
 }
@@ -485,6 +522,7 @@ static int qpnp_lbc_read(struct qpnp_lbc_chip *chip, u16 base,
 	if (base == 0) {
 		pr_err("base cannot be zero base=0x%02x sid=0x%02x rc=%d\n",
 				base, spmi->sid, rc);
+		CHARGER_READ_ERROR;
 		return -EINVAL;
 	}
 
@@ -505,6 +543,7 @@ static int qpnp_lbc_write(struct qpnp_lbc_chip *chip, u16 base,
 	if (base == 0) {
 		pr_err("base cannot be zero base=0x%02x sid=0x%02x rc=%d\n",
 				base, spmi->sid, rc);
+		CHARGER_WRITE_ERROR;
 		return -EINVAL;
 	}
 
@@ -676,6 +715,23 @@ static int qpnp_lbc_charger_enable(struct qpnp_lbc_chip *chip, int reason,
 
 	pr_debug("reason=%d requested_enable=%d disabled_status=%d\n",
 					reason, enable, disabled);
+// add for fih discharging requirement {{
+	if(reason == SOC)
+	{
+		if (enable)
+		{
+			pr_debug("enable charging by SOC \n");
+			chip->fih_temp_work_cancel = 0; 
+			schedule_delayed_work(&chip->fih_temp_work, msecs_to_jiffies(POC_CHECK_TEMP_PERIOD_MS));
+		}
+		else
+		{
+			pr_debug("disable charging by SOC \n");
+			chip->fih_temp_work_cancel = 1; 
+		}
+	}	
+// add for fih discharging requirement }}
+	
 	if (enable)
 		disabled &= ~reason;
 	else
@@ -1033,6 +1089,11 @@ static int qpnp_lbc_ibatmax_set(struct qpnp_lbc_chip *chip, int chg_current)
 	if (chg_current > QPNP_LBC_IBATMAX_MAX)
 		pr_debug("bad mA=%d clamping current\n", chg_current);
 
+//  add for usb charging current {{
+	if(chg_current > chip->cfg_ibat_max)
+		chg_current = chip->cfg_ibat_max;
+//  add for usb charging current }}
+
 	chg_current = clamp(chg_current, QPNP_LBC_IBATMAX_MIN,
 						QPNP_LBC_IBATMAX_MAX);
 	reg_val = (chg_current - QPNP_LBC_IBATMAX_MIN) / QPNP_LBC_I_STEP_MA;
@@ -1250,11 +1311,14 @@ static int get_prop_batt_health(struct qpnp_lbc_chip *chip)
 		return POWER_SUPPLY_HEALTH_OVERHEAT;
 	if (!(BATT_TEMP_COLD_MASK & reg_val))
 		return POWER_SUPPLY_HEALTH_COLD;
+// removed for FAO-3606 {{	
+#if 0	
 	if (chip->bat_is_cool)
 		return POWER_SUPPLY_HEALTH_COOL;
 	if (chip->bat_is_warm)
 		return POWER_SUPPLY_HEALTH_WARM;
-
+#endif
+// removed for FAO-3606 }}
 	return POWER_SUPPLY_HEALTH_GOOD;
 }
 
@@ -1348,22 +1412,42 @@ static int get_prop_capacity(struct qpnp_lbc_chip *chip)
 	return DEFAULT_CAPACITY;
 }
 
-#define DEFAULT_TEMP		250
+#define DEFAULT_TEMP		-1280
 static int get_prop_batt_temp(struct qpnp_lbc_chip *chip)
 {
 	int rc = 0;
 	struct qpnp_vadc_result results;
 
+// add for fake temp {{
+	if (chip->fake_temp != FAKE_DEFAULE) {
+		results.physical = chip->fake_temp;
+		return (int)results.physical;
+	}
+// add for fake temp }}
+
 	if (chip->cfg_use_fake_battery || !get_prop_batt_present(chip))
 		return DEFAULT_TEMP;
 
+//20170524@---------------st.
+    if ( fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_AT2 )
+    {
+        results.physical= 250;
+        pr_debug("!!!!!!!AT2 only -- set battery therm to 25c[250]!!!!!!\n");
+    }
+    else
+    {
 	rc = qpnp_vadc_read(chip->vadc_dev, LR_MUX1_BATT_THERM, &results);
 	if (rc) {
 		pr_debug("Unable to read batt temperature rc=%d\n", rc);
 		return DEFAULT_TEMP;
 	}
+	if(results.physical == -400)
+		results.physical = DEFAULT_TEMP;
 	pr_debug("get_bat_temp %d, %lld\n", results.adc_code,
 							results.physical);
+    }
+//20170524@---------------ed.
+
 
 	return (int)results.physical;
 }
@@ -1544,6 +1628,22 @@ mutex_unlock:
 	return rc;
 }
 
+// add for Power Monitor {{
+static int get_bms_prop_intval(struct qpnp_lbc_chip *chip, enum power_supply_property psp)
+{
+	union power_supply_propval ret = {0,};
+
+	if (chip->bms_psy) {
+		chip->bms_psy->get_property(chip->bms_psy,
+		  	psp, &ret);
+		return ret.intval;
+	} else {
+		pr_debug("No BMS supply registered return 0\n");
+	}
+	return 0;
+}
+// add for Power Monitor }}
+
 static int qpnp_batt_property_is_writeable(struct power_supply *psy,
 					enum power_supply_property psp)
 {
@@ -1555,6 +1655,10 @@ static int qpnp_batt_property_is_writeable(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_VOLTAGE_MIN:
 	case POWER_SUPPLY_PROP_WARM_TEMP:
 	case POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL:
+	case POWER_SUPPLY_PROP_INPUT_CURRENT_MAX: // add for FTM	
+	case POWER_SUPPLY_PROP_TEMP: // add for Fake temp
+	case POWER_SUPPLY_PROP_CHARGE_FULL:
+	case POWER_SUPPLY_PROP_CYCLE_COUNT:	
 		return 1;
 	default:
 		break;
@@ -1652,6 +1756,7 @@ static int qpnp_batt_power_set_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
 		chip->fake_battery_soc = val->intval;
+		pr_info("set capacity to %d\n", val->intval);
 		pr_debug("power supply changed batt_psy\n");
 		break;
 	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
@@ -1667,6 +1772,23 @@ static int qpnp_batt_power_set_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL:
 		qpnp_lbc_system_temp_level_set(chip, val->intval);
 		break;
+// added for FTM {{
+	case POWER_SUPPLY_PROP_INPUT_CURRENT_MAX:
+		if (qpnp_lbc_is_usb_chg_plugged_in(chip))
+			qpnp_lbc_ibatmax_set(chip, val->intval / 1000);
+		break;
+// added for FTM {{
+// add for Fake function {{
+	case POWER_SUPPLY_PROP_TEMP:
+		chip->fake_temp = val->intval;
+		break;
+	case POWER_SUPPLY_PROP_CHARGE_FULL:
+		chip->fake_fcc = val->intval;
+		break;
+	case POWER_SUPPLY_PROP_CYCLE_COUNT:	
+		chip->fake_cc = val->intval;
+		break;		
+// add for Fake function }}
 	default:
 		return -EINVAL;
 	}
@@ -1681,6 +1803,7 @@ static int qpnp_batt_power_get_property(struct power_supply *psy,
 {
 	struct qpnp_lbc_chip *chip =
 		container_of(psy, struct qpnp_lbc_chip, batt_psy);
+	union power_supply_propval psp_ret = {0,}; // add for Battery ID
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
@@ -1705,7 +1828,13 @@ static int qpnp_batt_power_get_property(struct power_supply *psy,
 		val->intval = get_prop_battery_voltage_now(chip);
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
-		val->intval = get_prop_batt_temp(chip);
+// add for fake temp {{
+		if (chip->fake_temp == FAKE_DEFAULE) {
+			val->intval = get_prop_batt_temp(chip);
+		} else {
+			val->intval = chip->fake_temp;
+		}
+// add for fake temp }}
 		break;
 	case POWER_SUPPLY_PROP_COOL_TEMP:
 		val->intval = chip->cfg_cool_bat_decidegc;
@@ -1725,6 +1854,48 @@ static int qpnp_batt_power_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL:
 		val->intval = chip->therm_lvl_sel;
 		break;
+// added for FTM {{
+	case POWER_SUPPLY_PROP_INPUT_CURRENT_MAX:
+		val->intval = chip->prev_max_ma* 1000;
+		break;
+// added for FTM {{		
+// added for FAO-412 {{	
+	case POWER_SUPPLY_PROP_TECHNOLOGY:
+		val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
+		break;
+// added for FAO-412 }}		
+// add for Battery ID {{		
+	case POWER_SUPPLY_PROP_MANUFACTURER:			
+		if (chip->bms_psy) {
+			chip->bms_psy->get_property(chip->bms_psy,
+				POWER_SUPPLY_PROP_MANUFACTURER, &psp_ret);
+			val->strval = psp_ret.strval;
+		}
+		else
+			val->strval = "UNKNOWN";
+		
+		if(chip->batt_unknown == 1)
+			val->strval = "UNKNOWN";			
+		break;
+// add for Battery ID }}
+// add for Power Monitor {{
+	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
+		val->intval = get_bms_prop_intval(chip, psp);
+		break;
+	case POWER_SUPPLY_PROP_CHARGE_FULL:
+		if(chip->fake_fcc == FAKE_DEFAULE)
+			val->intval = get_bms_prop_intval(chip, psp);
+		else
+			val->intval = chip->fake_fcc;
+		break;
+	case POWER_SUPPLY_PROP_CYCLE_COUNT:
+		if(chip->fake_cc == FAKE_DEFAULE)
+			val->intval = get_bms_prop_intval(chip, psp);
+		else
+			val->intval = chip->fake_cc;
+		break;	
+// add for Power Monitor }}
+
 	default:
 		return -EINVAL;
 	}
@@ -1871,6 +2042,122 @@ static int qpnp_lbc_parallel_get_property(struct power_supply *psy,
 	}
 	return 0;
 }
+
+// add for Battery ID {{
+static ssize_t set_batt_unknown(struct device *dev,
+			       struct device_attribute *attr, const char *buf,
+			       size_t count)
+{
+	struct qpnp_lbc_chip *chip = dev_get_drvdata(dev);
+	int batt_unknown =0;
+	sscanf(buf, "%d", &batt_unknown);
+	chip->batt_unknown = batt_unknown;
+	pr_info("set batt_unknown: %d\n",chip->batt_unknown);
+	
+	return count;
+}
+
+static ssize_t get_batt_unknown(struct device *dev,
+			       struct device_attribute *attr, char *buf)
+{
+	struct qpnp_lbc_chip *chip = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%d\n", chip->batt_unknown);
+}
+static DEVICE_ATTR(batt_unknown, 0644,
+	get_batt_unknown, set_batt_unknown);
+// add for Battery ID }}
+// add for fih discharging requirement {{
+
+static void fih_charging_temp_check(struct qpnp_lbc_chip *chip, int temp)
+{
+	int vbat_uv = get_prop_battery_voltage_now(chip);
+
+	if(temp >550)
+	{
+		pr_debug("temp > 55\n");
+		if(chip->cfg_charging_disabled ==0)
+		{
+			pr_info("discharging!! \n");
+			chip->cfg_charging_disabled =1; /* disable charging */
+			qpnp_lbc_charger_enable(chip, USER,	!chip->cfg_charging_disabled);
+			power_supply_changed(&chip->batt_psy);
+		}
+	}
+	else if(temp <0)
+	{
+		pr_debug("temp < 0\n");
+		if(chip->cfg_charging_disabled ==0)
+		{
+			pr_info("discharging!! \n");
+			chip->cfg_charging_disabled =1; /* disable charging */
+			qpnp_lbc_charger_enable(chip, USER,	!chip->cfg_charging_disabled);
+			power_supply_changed(&chip->batt_psy);
+		}
+	}
+	else if(temp > 30  && temp < 520)
+	{
+		pr_debug("%s vbat_uv = %d chip->bat_is_warm = %d chip->cfg_charging_disabled = %d temp = %d\n", __func__, vbat_uv, chip->bat_is_warm, chip->cfg_charging_disabled, temp);
+		if(chip->bat_is_warm)
+		{
+			if((chip->cfg_charging_disabled == 0) && (vbat_uv >= 4195000))
+			{
+				chip->cfg_charging_disabled =1; /* disable charging */
+				qpnp_lbc_charger_enable(chip, USER,	!chip->cfg_charging_disabled);
+				power_supply_changed(&chip->batt_psy);
+			}
+			else if((chip->cfg_charging_disabled == 1) && (vbat_uv <= 3950000))
+			{
+				chip->cfg_charging_disabled =0; /* disable charging */
+				qpnp_lbc_charger_enable(chip, USER,	!chip->cfg_charging_disabled);
+				power_supply_changed(&chip->batt_psy);
+			}
+		}
+		//pr_debug("0< temp < 55\n");
+		else if(chip->cfg_charging_disabled ==1)
+		{
+			pr_info("re-charging!! \n");
+			chip->cfg_charging_disabled =0;		/* enable charging */
+			qpnp_lbc_charger_enable(chip, USER,	!chip->cfg_charging_disabled);
+			power_supply_changed(&chip->batt_psy);
+		}
+	}
+}
+
+static void fih_temp_check_work(struct work_struct *work)
+{
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct qpnp_lbc_chip *chip = container_of(dwork,
+				struct qpnp_lbc_chip, fih_temp_work);
+
+	int temp;
+	int batt_present;
+
+	if(chip->ftm_mode ==0)
+	{
+		temp = get_prop_batt_temp(chip);
+		batt_present = qpnp_lbc_is_batt_present(chip);
+			
+		pr_debug("batt_present:%d, temp: %d \n",batt_present, temp);
+		if (qpnp_lbc_is_usb_chg_plugged_in(chip) && (chip->chg_done == false) && batt_present)
+		{
+			fih_charging_temp_check(chip, temp);
+		}	
+
+		if(chip->fih_temp_work_cancel == 1)
+		{
+			chip->fih_temp_work_cancel =0;
+			// clear USER bit in qpnp_lbc_charger_enable, and keep charging state {{
+			if(chip->charger_disabled & USER)
+				chip->charger_disabled &= ~USER;
+		//	cancel_delayed_work_sync(&chip->fih_temp_work);
+		}
+		else
+			schedule_delayed_work(&chip->fih_temp_work,
+				msecs_to_jiffies(POC_CHECK_TEMP_PERIOD_MS));
+	}
+}
+// add for fih discharging requirement }}
 
 
 static void qpnp_lbc_jeita_adc_notification(enum qpnp_tm_state state, void *ctx)
@@ -2279,6 +2566,15 @@ static int qpnp_charger_read_dt_props(struct qpnp_lbc_chip *chip)
 		return rc;
 	}
 
+//  add for usb charging current {{
+	OF_PROP_READ(chip, cfg_ibat_max, "ibatmax-ma", rc, 0);
+	if (rc)
+	{
+		chip->cfg_ibat_max = QPNP_LBC_IBATMAX_MAX;
+		pr_err("Error reading required property rc=%d\n", rc);
+	}
+//  add for usb charging current }}
+
 	rc = of_property_read_string(chip->spmi->dev.of_node,
 						"qcom,bpd-detection", &bpd);
 	if (rc) {
@@ -2461,9 +2757,11 @@ static irqreturn_t qpnp_lbc_usbin_valid_irq_handler(int irq, void *_chip)
 	struct qpnp_lbc_chip *chip = _chip;
 	int usb_present;
 	unsigned long flags;
+	int rc;
+	u8 reg_val = CHG_FAILED_BIT;
 
 	usb_present = qpnp_lbc_is_usb_chg_plugged_in(chip);
-	pr_debug("usbin-valid triggered: %d\n", usb_present);
+	pr_err("usbin-valid triggered: %d\n", usb_present);
 
 	if (chip->usb_present ^ usb_present) {
 		chip->usb_present = usb_present;
@@ -2507,6 +2805,31 @@ static irqreturn_t qpnp_lbc_usbin_valid_irq_handler(int irq, void *_chip)
 
 		pr_debug("Updating usb_psy PRESENT property\n");
 		power_supply_set_present(chip->usb_psy, chip->usb_present);
+	}
+
+// add for fih discharging requirement {{
+	if(usb_present)
+	{
+		pr_debug("enable fih_temp_work\n");
+		chip->fih_temp_work_cancel = 0; 
+		schedule_delayed_work(&chip->fih_temp_work, msecs_to_jiffies(POC_CHECK_TEMP_PERIOD_MS));
+	}	
+	else
+	{
+		pr_debug("disable fih_temp_work\n");
+		chip->fih_temp_work_cancel = 1; 
+	}	
+// add for fih discharging requirement }}
+
+	if(!usb_present && tchg_timer_expired)
+	{
+		rc = qpnp_lbc_write(chip, chip->chgr_base + CHG_FAILED_REG,
+				&reg_val, 1);
+		if (rc)
+			pr_err("Failed to write chg_fail clear bit rc=%d\n", rc);
+
+		tchg_timer_expired = false;
+		tchg_timer_sdp_counters = 0;
 	}
 
 	return IRQ_HANDLED;
@@ -2569,25 +2892,66 @@ static irqreturn_t qpnp_lbc_batt_pres_irq_handler(int irq, void *_chip)
 			pr_debug("disabling vadc notifications\n");
 		}
 	}
+
+	if(batt_present == 0)
+		QPNPCHG_BATTERY_MISSING_ERROR;
+	
 	return IRQ_HANDLED;
+}
+
+static void fih_timer_check(struct qpnp_lbc_chip *chip)
+{
+	int rc;
+	u8 reg_val = CHG_FAILED_BIT;
+	union power_supply_propval usb_type = {0,};
+
+	if (chip->usb_psy == NULL)
+		chip->usb_psy = power_supply_get_by_name("usb");
+
+	if (chip->usb_psy) {
+		chip->usb_psy->get_property(chip->usb_psy,
+					POWER_SUPPLY_PROP_TYPE, &usb_type);
+	}
+
+	if(usb_type.intval == POWER_SUPPLY_TYPE_USB)
+	{
+		if(tchg_timer_sdp_counters == 0)
+		{
+			rc = qpnp_lbc_write(chip, chip->chgr_base + CHG_FAILED_REG,
+					&reg_val, 1);
+			if (rc)
+				pr_err("Failed to write chg_fail clear bit rc=%d\n", rc);
+			tchg_timer_sdp_counters = 1;
+		}
+	}
 }
 
 static irqreturn_t qpnp_lbc_chg_failed_irq_handler(int irq, void *_chip)
 {
 	struct qpnp_lbc_chip *chip = _chip;
-	int rc;
-	u8 reg_val = CHG_FAILED_BIT;
+	//int rc;
+	//u8 reg_val = CHG_FAILED_BIT;
 
-	pr_debug("chg_failed triggered count=%u\n", ++chip->chg_failed_count);
+	pr_err("chg_failed triggered count=%u\n", ++chip->chg_failed_count);
+	tchg_timer_expired = true;
+
+	fih_timer_check(chip);
+#if 0
 	rc = qpnp_lbc_write(chip, chip->chgr_base + CHG_FAILED_REG,
 				&reg_val, 1);
 	if (rc)
 		pr_err("Failed to write chg_fail clear bit rc=%d\n", rc);
+#endif
 
 	if (chip->bat_if_base) {
 		pr_debug("power supply changed batt_psy\n");
 		power_supply_changed(&chip->batt_psy);
 	}
+
+// add for fih discharging requirement {{
+	pr_debug("disable fih_temp_work \n");
+	chip->fih_temp_work_cancel = 1;  
+// add for fih discharging requirement }}
 
 	return IRQ_HANDLED;
 }
@@ -2654,6 +3018,11 @@ static irqreturn_t qpnp_lbc_chg_done_irq_handler(int irq, void *_chip)
 	chip->chg_done = true;
 	pr_debug("power supply changed batt_psy\n");
 	power_supply_changed(&chip->batt_psy);
+
+	// add for fih discharging requirement {{
+	pr_debug("disable fih_temp_work\n");
+	chip->fih_temp_work_cancel = 1; 
+	// add for fih discharging requirement }}
 
 	return IRQ_HANDLED;
 }
@@ -3165,6 +3534,7 @@ static int qpnp_lbc_main_probe(struct spmi_device *spmi)
 	usb_psy = power_supply_get_by_name("usb");
 	if (!usb_psy) {
 		pr_err("usb supply not found deferring probe\n");
+		QPNPCHG_PROBE_ERROR;
 		return -EPROBE_DEFER;
 	}
 
@@ -3172,6 +3542,7 @@ static int qpnp_lbc_main_probe(struct spmi_device *spmi)
 				GFP_KERNEL);
 	if (!chip) {
 		pr_err("memory allocation failed.\n");
+		QPNPCHG_PROBE_ERROR;
 		return -ENOMEM;
 	}
 
@@ -3195,6 +3566,7 @@ static int qpnp_lbc_main_probe(struct spmi_device *spmi)
 	rc = qpnp_charger_read_dt_props(chip);
 	if (rc) {
 		pr_err("Failed to read DT properties rc=%d\n", rc);
+		QPNPCHG_PROBE_ERROR;
 		return rc;
 	}
 
@@ -3225,21 +3597,25 @@ static int qpnp_lbc_main_probe(struct spmi_device *spmi)
 	rc = qpnp_lbc_misc_init(chip);
 	if (rc) {
 		pr_err("unable to initialize LBC MISC rc=%d\n", rc);
+		QPNPCHG_PROBE_ERROR;
 		return rc;
 	}
 	rc = qpnp_lbc_chg_init(chip);
 	if (rc) {
 		pr_err("unable to initialize LBC charger rc=%d\n", rc);
+		QPNPCHG_PROBE_ERROR;
 		return rc;
 	}
 	rc = qpnp_lbc_bat_if_init(chip);
 	if (rc) {
 		pr_err("unable to initialize LBC BAT_IF rc=%d\n", rc);
+		QPNPCHG_PROBE_ERROR;
 		return rc;
 	}
 	rc = qpnp_lbc_usb_path_init(chip);
 	if (rc) {
 		pr_err("unable to initialize LBC USB path rc=%d\n", rc);
+		QPNPCHG_PROBE_ERROR;
 		return rc;
 	}
 
@@ -3247,9 +3623,16 @@ static int qpnp_lbc_main_probe(struct spmi_device *spmi)
 		rc = qpnp_lbc_register_chgr_led(chip);
 		if (rc) {
 			pr_err("unable to register charger led rc=%d\n", rc);
+			QPNPCHG_PROBE_ERROR;
 			return rc;
 		}
 	}
+
+// add for fake function {{
+	chip->fake_cc = FAKE_DEFAULE;
+	chip->fake_fcc = FAKE_DEFAULE;
+	chip->fake_temp = FAKE_DEFAULE;
+	chip->batt_unknown =0; // add for Battery ID
 
 	if (chip->bat_if_base) {
 		chip->batt_present = qpnp_lbc_is_batt_present(chip);
@@ -3304,6 +3687,24 @@ static int qpnp_lbc_main_probe(struct spmi_device *spmi)
 	/* Get/Set charger's initial status */
 	determine_initial_status(chip);
 
+// add for Battery ID
+	device_create_file(chip->dev,	&dev_attr_batt_unknown);
+	
+// add for fih discharging requirement {{
+	INIT_DELAYED_WORK(&chip->fih_temp_work, fih_temp_check_work); 
+	chip->fih_temp_work_cancel = 0;
+// add for fih discharging requirement }}
+	
+
+// add for FTM {{
+	chip->ftm_mode = 0;
+	if(strstr(saved_command_line, "androidboot.mode=2")!=NULL)
+	{
+		pr_info("create check work for ftm mode \n");
+		chip->ftm_mode = 1;
+	}
+// add for FTM }}
+
 	rc = qpnp_lbc_request_irqs(chip);
 	if (rc) {
 		pr_err("unable to initialize LBC MISC rc=%d\n", rc);
@@ -3342,6 +3743,14 @@ static int qpnp_lbc_main_probe(struct spmi_device *spmi)
 			get_prop_battery_voltage_now(chip),
 			get_prop_capacity(chip));
 
+// add for fih discharging requirement {{
+	if(chip->cfg_charging_disabled == 0 && qpnp_lbc_is_usb_chg_plugged_in(chip))
+	{
+		pr_info("enable fih_temp_work \n");
+		chip->fih_temp_work_cancel = 0; 
+		schedule_delayed_work(&chip->fih_temp_work, msecs_to_jiffies(POC_CHECK_TEMP_PERIOD_MS));
+	}
+// add for fih discharging requirement }}
 	return 0;
 
 unregister_batt:
@@ -3349,6 +3758,7 @@ unregister_batt:
 		power_supply_unregister(&chip->batt_psy);
 fail_chg_enable:
 	dev_set_drvdata(&spmi->dev, NULL);
+	QPNPCHG_PROBE_ERROR;
 	return rc;
 }
 
@@ -3371,6 +3781,7 @@ static int qpnp_lbc_remove(struct spmi_device *spmi)
 {
 	struct qpnp_lbc_chip *chip = dev_get_drvdata(&spmi->dev);
 
+	cancel_delayed_work_sync(&chip->fih_temp_work); // add for fih discharging requirement	
 	if (chip->supported_feature_flag & VDD_TRIM_SUPPORTED) {
 		alarm_cancel(&chip->vddtrim_alarm);
 		cancel_work_sync(&chip->vddtrim_work);
@@ -3407,7 +3818,10 @@ static int __init qpnp_lbc_init(void)
 {
 	return spmi_driver_register(&qpnp_lbc_driver);
 }
-module_init(qpnp_lbc_init);
+// for probe sequence, adc -> bms/chg {{ 
+//module_init(qpnp_lbc_init);
+late_initcall(qpnp_lbc_init); 
+// for probe sequence, adc -> bms/chg }}
 
 static void __exit qpnp_lbc_exit(void)
 {

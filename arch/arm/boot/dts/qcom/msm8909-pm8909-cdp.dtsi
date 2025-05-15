@@ -11,14 +11,24 @@
  * GNU General Public License for more details.
  */
 
+/ {
+	fao_batterydata: qcom,battery-data { /* NEED TO MODIFY*/
+		qcom,rpull-up-kohm = <100>;
+		qcom,vref-batt-therm = <1800000>;
+
+		/include/ "components/power/batterydata-scud-4v35-2500mah.dtsi"
+	};
+};
+
+
 &pm8909_chg {
 	status = "ok";
-	qcom,charging-disabled;
 };
 
 &pm8909_bms {
 	status = "ok";
-	qcom,disable-bms;
+	qcom,battery-data = <&fao_batterydata>;
+	qcom,shutdown-soc-valid-limit = <20>;
 };
 
 

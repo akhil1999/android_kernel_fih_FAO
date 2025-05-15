@@ -25,7 +25,11 @@
 #include <linux/elf.h>
 #include <linux/wait.h>
 #include <soc/qcom/ramdump.h>
+/* 20150505, qcom patch for venus ramdump, start */
 #include <linux/dma-mapping.h>
+#include <linux/platform_device.h>
+/* 20150505, qcom patch for venus ramdump, end */
+
 
 #define RAMDUMP_WAIT_MSECS	120000
 
@@ -106,11 +110,13 @@ static ssize_t ramdump_read(struct file *filep, char __user *buf, size_t count,
 	struct ramdump_device *rd_dev = container_of(filep->private_data,
 				struct ramdump_device, device);
 	void *device_mem = NULL, *origdevice_mem = NULL, *vaddr = NULL;
+	/* 20150505, qcom patch for venus ramdump, start */
 	unsigned long data_left = 0, bytes_before, bytes_after;
 	unsigned long addr = 0;
 	size_t copy_size = 0, alignsize;
 	unsigned char *alignbuf = NULL, *finalbuf = NULL;
 	int ret = 0;
+	/* 20150505, qcom patch for venus ramdump, end */
 	loff_t orig_pos = *pos;
 
 	if ((filep->f_flags & O_NONBLOCK) && !rd_dev->data_ready)

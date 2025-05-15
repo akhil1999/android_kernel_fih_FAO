@@ -228,6 +228,21 @@ config SENSORS_LIS3DH
 	  To compile this driver as a module, choose M here: the
 	  module will be called lis3dh_acc.
 
+config SENSORS_LIS3DSH
+        tristate "ST LIS3DSH 3-axis digital acceleromater"
+        depends on I2C
+        help
+          Say Y here if you want to support STMicroelectronics LIS3DSH
+          accelerometer connected via an I2C bus.
+          To compile this driver as a module, choose M here: the
+          module will be called lis3dh_acc.
+
+config SENSORS_R3GD20
+        tristate "ST R3GD20 3-axis digital gyroscope"
+        depends on I2C
+        help
+        Say Y here if you want to support STMicroelectronics R3GD20 connected via an I2C bus.
+
 config INPUT_APANEL
 	tristate "Fujitsu Lifebook Application Panel buttons"
 	depends on X86 && I2C && LEDS_CLASS
@@ -893,5 +908,14 @@ config SENSORS_BMI160_ENABLE_INT2
 	help
 	 If you say yes here, you get INT2 support for Bosch Sensortec
 	 sensors BMI160.
+
+config INPUT_KIONIX_ACCEL
+	tristate "KIONIX_ACCEL"
+	depends on I2C=y
+	help
+	  If you say yes here you get support for the Kionix digital 3-axis
+	  accelerometer.
+	  This driver can also be built as a module. If so, the module will be
+	  called kionix_accel.
 endif
 

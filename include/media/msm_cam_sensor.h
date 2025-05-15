@@ -171,6 +171,9 @@ struct msm_camera_i2c_array_write_config {
 struct msm_camera_i2c_read_config {
 	uint16_t slave_addr;
 	uint16_t reg_addr;
+//B2N-5949 When start/stop streaming,to check sensor frame count status++
+	enum msm_camera_i2c_reg_addr_type addr_type;
+//B2N-5949 When start/stop streaming,to check sensor frame count status--
 	enum msm_camera_i2c_data_type data_type;
 	uint16_t data;
 };

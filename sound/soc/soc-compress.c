@@ -871,7 +871,7 @@ int soc_new_compress(struct snd_soc_pcm_runtime *rtd, int num)
 		}
 	}
 
-	printk(KERN_INFO "compress asoc: %s <-> %s mapping ok\n", codec_dai->name,
+	printk(KERN_DEBUG "compress asoc: %s <-> %s mapping ok\n", codec_dai->name,
 		cpu_dai->name);
 	return ret;
 

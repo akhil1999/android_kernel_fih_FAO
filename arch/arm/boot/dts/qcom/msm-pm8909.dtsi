@@ -33,14 +33,16 @@
 			qcom,system-reset;
 			qcom,clear-warm-reset;
 			qcom,store-hard-reset-reason;
+			qcom,s3-debounce = <128>; 
+			qcom,s3-src = "kpdpwr-and-resin";
 
 			qcom,pon_1 {
 				qcom,pon-type = <0>;
 				qcom,support-reset = <1>;
 				qcom,pull-up = <1>;
-				qcom,s1-timer = <10256>;
+				qcom,s1-timer = <6720>;
 				qcom,s2-timer = <2000>;
-				qcom,s2-type = <1>;
+				qcom,s2-type = <4>;
 				linux,code = <116>;
 			};
 
@@ -190,6 +192,24 @@
 			};
 		};
 
+		qcom,leds@c000 {
+				compatible = "qcom,leds-qpnp";
+				reg = <0xc000 0x100>;
+				label = "gpio";
+			};
+			
+		qcom,leds@c300 {
+				compatible = "qcom,leds-qpnp";
+				reg = <0xc300 0x100>;
+				label = "gpio";
+			};
+			
+    		qcom,leds@a100 {
+			compatible = "qcom,leds-qpnp";
+			reg = <0xa100 0x100>;
+			label = "mpp";
+		};
+
 		qcom,leds@a300 {
 			compatible = "qcom,leds-qpnp";
 			reg = <0xa300 0x100>;
@@ -281,7 +301,7 @@
 			qcom,low-voltage-calculate-soc-ms = <1000>;
 			qcom,low-soc-calculate-soc-ms = <5000>;
 			qcom,calculate-soc-ms = <20000>;
-			qcom,volatge-soc-timeout-ms = <60000>;
+			qcom,volatge-soc-timeout-ms = <120000>;
 			qcom,low-voltage-threshold = <3450000>;
 			qcom,s3-ocv-tolerence-uv = <1200>;
 			qcom,s2-fifo-length = <5>;

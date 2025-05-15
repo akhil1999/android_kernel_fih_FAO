@@ -48,6 +48,8 @@ static void check_dsi_ctrl_status(struct work_struct *work)
 {
 	struct dsi_status_data *pdsi_status = NULL;
 
+	pr_debug("%s: [LCM-ESD] enter\n", __func__);
+
 	pdsi_status = container_of(to_delayed_work(work),
 		struct dsi_status_data, check_status);
 
@@ -153,6 +155,7 @@ static int fb_event_callback(struct notifier_block *self,
 
 		switch (*blank) {
 		case FB_BLANK_UNBLANK:
+			pr_debug("%s: [LCM-ESD] event=FB_BLANK_UNBLANK, schedule_delayed_work\n", __func__);
 			schedule_delayed_work(&pdata->check_status,
 				msecs_to_jiffies(interval));
 			break;
@@ -160,6 +163,7 @@ static int fb_event_callback(struct notifier_block *self,
 		case FB_BLANK_HSYNC_SUSPEND:
 		case FB_BLANK_VSYNC_SUSPEND:
 		case FB_BLANK_NORMAL:
+			pr_debug("%s: [LCM-ESD] cancel_delayed_work\n", __func__);
 			cancel_delayed_work(&pdata->check_status);
 			break;
 		default:

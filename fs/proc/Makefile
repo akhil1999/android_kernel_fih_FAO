@@ -18,6 +18,7 @@ proc-y	+= interrupts.o
 proc-y	+= loadavg.o
 proc-y	+= meminfo.o
 proc-y	+= stat.o
+proc-y  += stat_top.o
 proc-y	+= uptime.o
 proc-y	+= version.o
 proc-y	+= softirqs.o

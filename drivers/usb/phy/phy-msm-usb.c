@@ -51,6 +51,7 @@
 #include <linux/qpnp/qpnp-adc.h>
 
 #include <linux/msm-bus.h>
+#include <fih/hwid.h>
 
 #define MSM_USB_BASE	(motg->regs)
 #define MSM_USB_PHY_CSR_BASE (motg->phy_csr_regs)
@@ -95,7 +96,7 @@ module_param(lpm_disconnect_thresh , uint, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(lpm_disconnect_thresh,
 	"Delay before entering LPM on USB disconnect");
 
-static bool floated_charger_enable;
+static bool floated_charger_enable = 1;
 module_param(floated_charger_enable , bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(floated_charger_enable,
 	"Whether to enable floated charger");
@@ -116,7 +117,7 @@ static bool debug_aca_enabled;
 static bool debug_bus_voting_enabled;
 static bool mhl_det_in_progress;
 
-static struct regulator *hsusb_3p3;
+static struct regulator *hsusb_3p3, *ueth_3p3;///USB Ethernet
 static struct regulator *hsusb_1p8;
 static struct regulator *hsusb_vdd;
 static struct regulator *vbus_otg;
@@ -139,6 +140,7 @@ static u32 bus_freqs[USB_NUM_BUS_CLOCKS];	/* bimc, snoc, pcnoc clk */;
 static char bus_clkname[USB_NUM_BUS_CLOCKS][20] = {"bimc_clk", "snoc_clk",
 						"pcnoc_clk"};
 static bool bus_clk_rate_set;
+bool USB_Ethernet = false;
 
 static void
 msm_otg_dbg_log_event(struct usb_phy *phy, char *event, int d1, int d2)
@@ -181,6 +183,20 @@ static int msm_hsusb_ldo_init(struct msm_otg *motg, int init)
 					"hsusb 3p3\n");
 			return rc;
 		}
+////OEM
+    if(USB_Ethernet){
+		ueth_3p3 = devm_regulator_get(motg->phy.dev, "UETH_3p3");
+		printk("USB Ethernet regulator_get ueth_3p3\n");
+
+		regulator_set_voltage(ueth_3p3, USB_PHY_3P3_VOL_MAX,
+				USB_PHY_3P3_VOL_MAX);
+		if (rc) {
+			dev_err(motg->phy.dev, "unable to set voltage level for"
+					"ethernet 3p3\n");
+			return rc;
+		}
+   }
+///End
 		hsusb_1p8 = devm_regulator_get(motg->phy.dev, "HSUSB_1p8");
 		if (IS_ERR(hsusb_1p8)) {
 			dev_err(motg->phy.dev, "unable to get hsusb 1p8\n");
@@ -202,6 +218,7 @@ put_1p8:
 	regulator_set_voltage(hsusb_1p8, 0, USB_PHY_1P8_VOL_MAX);
 put_3p3_lpm:
 	regulator_set_voltage(hsusb_3p3, 0, USB_PHY_3P3_VOL_MAX);
+///	regulator_set_voltage(ueth_3p3, 0, USB_PHY_3P3_VOL_MAX);
 	return rc;
 }
 
@@ -258,7 +275,25 @@ static int msm_hsusb_ldo_enable(struct msm_otg *motg,
 			regulator_set_optimum_mode(hsusb_1p8, 0);
 			return ret;
 		}
+///OEM
+   if(USB_Ethernet){
+		ret = regulator_set_optimum_mode(ueth_3p3,
+				USB_PHY_3P3_HPM_LOAD);
+		if (ret < 0) {
+			pr_err("%s: Unable to set HPM of the regulator "
+				"HSUSB_1p8\n", __func__);
+			return ret;
+		}
 
+		ret = regulator_enable(ueth_3p3);
+		if (ret) {
+			dev_err(motg->phy.dev, "%s: unable to enable the hsusb 1p8\n",
+				__func__);
+			regulator_set_optimum_mode(ueth_3p3, 0);
+			return ret;
+		}
+	}
+///End
 		ret = regulator_set_optimum_mode(hsusb_3p3,
 				USB_PHY_3P3_HPM_LOAD);
 		if (ret < 0) {
@@ -273,6 +308,11 @@ static int msm_hsusb_ldo_enable(struct msm_otg *motg,
 		if (ret) {
 			dev_err(motg->phy.dev, "%s: unable to enable the hsusb 3p3\n",
 				__func__);
+///OEM
+			if(USB_Ethernet){
+			regulator_set_optimum_mode(ueth_3p3, 0);
+		  }
+///End
 			regulator_set_optimum_mode(hsusb_3p3, 0);
 			regulator_set_optimum_mode(hsusb_1p8, 0);
 			regulator_disable(hsusb_1p8);
@@ -2013,7 +2053,13 @@ static void msm_otg_start_host(struct usb_otg *otg, int on)
 	hcd = bus_to_hcd(otg->host);
 
 	if (on) {
-		dev_dbg(otg->phy->dev, "host on\n");
+///OEM
+		if(USB_Ethernet){
+			gpio_set_value(pdata->usb_ethernet_reset_gpio, 1);
+		  printk("USB Ethernet Reset Pin High\n");
+		}
+///End
+		dev_err(otg->phy->dev, "host on\n");
 		msm_otg_dbg_log_event(&motg->phy, "HOST ON",
 				motg->inputs, otg->phy->state);
 
@@ -2023,7 +2069,13 @@ static void msm_otg_start_host(struct usb_otg *otg, int on)
 
 		usb_add_hcd(hcd, hcd->irq, IRQF_SHARED);
 	} else {
-		dev_dbg(otg->phy->dev, "host off\n");
+///OEM
+		if(USB_Ethernet){
+		gpio_set_value(pdata->usb_ethernet_reset_gpio, 0);
+		printk("USB Ethernet Reset Pin Low\n");
+///End
+		}
+		dev_err(otg->phy->dev, "host off\n");
 		msm_otg_dbg_log_event(&motg->phy, "HOST OFF",
 				motg->inputs, otg->phy->state);
 
@@ -2134,7 +2186,8 @@ static void msm_hsusb_vbus_power(struct msm_otg *motg, bool on)
 
 	if (!vbus_otg) {
 		pr_err("vbus_otg is NULL.");
-		return;
+		if ( fih_hwid_fetch(FIH_HWID_PRJ) != FIH_PRJ_AT2 )
+		    return;
 	}
 
 	/*
@@ -2145,17 +2198,21 @@ static void msm_hsusb_vbus_power(struct msm_otg *motg, bool on)
 	 */
 	if (on) {
 		msm_otg_notify_host_mode(motg, on);
-		ret = regulator_enable(vbus_otg);
-		if (ret) {
-			pr_err("unable to enable vbus_otg\n");
-			return;
+		if ( fih_hwid_fetch(FIH_HWID_PRJ) != FIH_PRJ_AT2 ){
+		    ret = regulator_enable(vbus_otg);
+		    if (ret) {
+		        pr_err("unable to enable vbus_otg\n");
+		        return;
+		    }
 		}
 		vbus_is_on = true;
 	} else {
-		ret = regulator_disable(vbus_otg);
-		if (ret) {
-			pr_err("unable to disable vbus_otg\n");
-			return;
+		if ( fih_hwid_fetch(FIH_HWID_PRJ) != FIH_PRJ_AT2 ){
+		    ret = regulator_disable(vbus_otg);
+		    if (ret) {
+		        pr_err("unable to disable vbus_otg\n");
+		        return;
+		    }
 		}
 		msm_otg_notify_host_mode(motg, on);
 		vbus_is_on = false;
@@ -2177,13 +2234,15 @@ static int msm_otg_set_host(struct usb_otg *otg, struct usb_bus *host)
 	}
 
 	if (!motg->pdata->vbus_power && host) {
-		vbus_otg = devm_regulator_get(motg->phy.dev, "vbus_otg");
-		if (IS_ERR(vbus_otg)) {
-			msm_otg_dbg_log_event(&motg->phy,
+		if ( fih_hwid_fetch(FIH_HWID_PRJ) != FIH_PRJ_AT2 ){
+		    vbus_otg = devm_regulator_get(motg->phy.dev, "vbus_otg");
+		    if (IS_ERR(vbus_otg)) {
+		        msm_otg_dbg_log_event(&motg->phy,
 					"UNABLE TO GET VBUS_OTG",
 					otg->phy->state, 0);
-			pr_err("Unable to get vbus_otg\n");
-			return PTR_ERR(vbus_otg);
+		        pr_err("Unable to get vbus_otg\n");
+		        return PTR_ERR(vbus_otg);
+		    }
 		}
 	}
 
@@ -4243,7 +4302,7 @@ static void msm_id_status_w(struct work_struct *w)
 		if (gpio_is_valid(motg->pdata->switch_sel_gpio))
 			gpio_direction_input(motg->pdata->switch_sel_gpio);
 		if (!test_and_set_bit(ID, &motg->inputs)) {
-			pr_debug("ID set\n");
+			pr_err("ID set\n");
 			msm_otg_dbg_log_event(&motg->phy, "ID SET",
 					motg->inputs, motg->phy.state);
 			work = 1;
@@ -4252,7 +4311,7 @@ static void msm_id_status_w(struct work_struct *w)
 		if (gpio_is_valid(motg->pdata->switch_sel_gpio))
 			gpio_direction_output(motg->pdata->switch_sel_gpio, 1);
 		if (test_and_clear_bit(ID, &motg->inputs)) {
-			pr_debug("ID clear\n");
+			pr_err("ID clear\n");
 			msm_otg_dbg_log_event(&motg->phy, "ID CLEAR",
 					motg->inputs, motg->phy.state);
 			set_bit(A_BUS_REQ, &motg->inputs);
@@ -4660,6 +4719,10 @@ static int otg_power_get_property_usb(struct power_supply *psy,
 	return 0;
 }
 
+#ifdef CONFIG_FIH_IPO
+extern int fih_ipo_get_suspend_state(void);
+extern int fih_ipo_set_usb_flag(void);
+#endif
 static int otg_power_set_property_usb(struct power_supply *psy,
 				  enum power_supply_property psp,
 				  const union power_supply_propval *val)
@@ -4678,6 +4741,11 @@ static int otg_power_set_property_usb(struct power_supply *psy,
 		break;
 	/* Process PMIC notification in PRESENT prop */
 	case POWER_SUPPLY_PROP_PRESENT:
+#ifdef CONFIG_FIH_IPO
+        if (fih_ipo_get_suspend_state() && val->intval) {
+            fih_ipo_set_usb_flag();
+        }
+#endif
 		msm_otg_set_vbus_state(val->intval);
 		break;
 	/* The ONLINE property reflects if usb has enumerated */
@@ -5331,7 +5399,15 @@ struct msm_otg_platform_data *msm_otg_dt_to_pdata(struct platform_device *pdev)
 			of_get_named_gpio(node, "qcom,usbid-gpio", 0);
 	if (pdata->usb_id_gpio < 0)
 		pr_debug("usb_id_gpio is not available\n");
-
+///OEM
+  if(USB_Ethernet){
+	pdata->usb_ethernet_reset_gpio =
+			of_get_named_gpio(node, "qcom,platform-usb-ethernet-reset-gpio", 0);
+	if (pdata->usb_ethernet_reset_gpio < 0)
+		pr_debug("usb_ethernet_reset_gpio is not available\n");
+	printk("qcom,platform-usb-ethernet-reset-gpio\n");
+	}
+///End
 	pdata->l1_supported = of_property_read_bool(node,
 				"qcom,hsusb-l1-supported");
 	pdata->enable_ahb2ahb_bypass = of_property_read_bool(node,
@@ -5365,7 +5441,10 @@ static int msm_otg_probe(struct platform_device *pdev)
 	int id_irq = 0;
 
 	dev_info(&pdev->dev, "msm_otg probe\n");
-
+///OEM
+    if ( fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_AT2 )
+    	USB_Ethernet = true;
+///End
 	motg = kzalloc(sizeof(struct msm_otg), GFP_KERNEL);
 	if (!motg) {
 		dev_err(&pdev->dev, "unable to allocate msm_otg\n");
@@ -5511,6 +5590,9 @@ static int msm_otg_probe(struct platform_device *pdev)
 	} else {
 		pdata = pdev->dev.platform_data;
 	}
+
+	if (gpio_is_valid(pdata->usb_ethernet_reset_gpio))
+		gpio_direction_output( pdata->usb_ethernet_reset_gpio,  1);
 
 	motg->phy.otg = devm_kzalloc(&pdev->dev, sizeof(struct usb_otg),
 							GFP_KERNEL);
@@ -5840,7 +5922,6 @@ static int msm_otg_probe(struct platform_device *pdev)
 	if (motg->pdata->mode == USB_OTG &&
 		motg->pdata->otg_control == OTG_PMIC_CONTROL &&
 		!motg->phy_irq) {
-
 		if (gpio_is_valid(motg->pdata->usb_id_gpio)) {
 			/* usb_id_gpio request */
 			ret = gpio_request(motg->pdata->usb_id_gpio,
@@ -6224,7 +6305,10 @@ static int msm_otg_runtime_idle(struct device *dev)
 static int msm_otg_runtime_suspend(struct device *dev)
 {
 	struct msm_otg *motg = dev_get_drvdata(dev);
-
+	if ( fih_hwid_fetch(FIH_HWID_PRJ) == FIH_PRJ_AT2 ){
+	    printk(KERN_ERR"[AT2] msm_otg:  NO OTG runtime suspend\n");
+	    return 0;
+	}
 	dev_dbg(dev, "OTG runtime suspend\n");
 	msm_otg_dbg_log_event(&motg->phy, "RUNTIME SUSPEND",
 			get_pm_runtime_counter(dev), 0);

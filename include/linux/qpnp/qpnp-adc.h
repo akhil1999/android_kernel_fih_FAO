@@ -275,6 +275,8 @@ enum qpnp_adc_scale_fn_type {
 	SCALE_NCP_03WF683_THERM,
 	SCALE_QRD_SKUC_BATT_THERM,
 	SCALE_QRD_SKUE_BATT_THERM,
+	SCALE_FAO_BATT_THERM, // add for FAO EVB	
+	SCALE_FAO_EVT_BATT_THERM, // add for FAO EVT	
 	SCALE_QRD_SKUL_BATT_THERM,
 	SCALE_NONE,
 };
@@ -298,6 +300,8 @@ enum qpnp_adc_tm_rscale_fn_type {
 	SCALE_R_SMB_BATT_THERM,
 	SCALE_R_ABSOLUTE,
 	SCALE_QRD_SKUH_RBATT_THERM,
+	SCALE_FAO_RBATT_THERM, // add for FAO
+	SCALE_FAO_RBATT_EVT_THERM, // add for FAO EVT
 	SCALE_QRD_SKUE_RBATT_THERM,
 	SCALE_RSCALE_NONE,
 };
@@ -1348,6 +1352,29 @@ int32_t qpnp_adc_scale_batt_id(struct qpnp_vadc_chip *dev, int32_t adc_code,
 			const struct qpnp_adc_properties *adc_prop,
 			const struct qpnp_vadc_chan_properties *chan_prop,
 			struct qpnp_vadc_result *chan_rslt);
+// add for FAO {{
+int32_t qpnp_adc_scale_fao_batt_therm(struct qpnp_vadc_chip *dev, int32_t adc_code,
+			const struct qpnp_adc_properties *adc_prop,
+			const struct qpnp_vadc_chan_properties *chan_prop,
+			struct qpnp_vadc_result *chan_rslt);
+
+int32_t qpnp_adc_btm_fao_scaler(struct qpnp_vadc_chip *chip,
+		struct qpnp_adc_tm_btm_param *param,
+		uint32_t *low_threshold, uint32_t *high_threshold);
+
+// add for FAO }}
+// add for FAO EVT {{
+int32_t qpnp_adc_scale_fao_evt_batt_therm(struct qpnp_vadc_chip *dev, int32_t adc_code,
+			const struct qpnp_adc_properties *adc_prop,
+			const struct qpnp_vadc_chan_properties *chan_prop,
+			struct qpnp_vadc_result *chan_rslt);
+
+int32_t qpnp_adc_btm_fao_evt_scaler(struct qpnp_vadc_chip *chip,
+		struct qpnp_adc_tm_btm_param *param,
+		uint32_t *low_threshold, uint32_t *high_threshold);
+
+// add for FAO EVT }}
+
 /**
  * qpnp_adc_scale_tdkntcg_therm() - Scales the pre-calibrated digital output
  *		of an ADC to the ADC reference and compensates for the

@@ -45,6 +45,23 @@ struct panel_id {
 #define LVDS_PANEL		11	/* LVDS */
 #define EDP_PANEL		12	/* LVDS */
 
+//SW4-HL-Display-AddCTCPanelHX8394DInsideSupport-00*{_20150317
+//SW4-HL-Display-BringUpNT35521-00+{_20150224
+enum {	//this id syncs with the item 'fih,panel-id' of each panel's dtsi
+	NT35521_720P_VIDEO_PANEL = 0,
+	HX8394A_720P_VIDEO_PANEL,		//SW4-HL-Display-AddTianmaPanelHX8394DInsideSupport-00+_20150310
+	HX8394D_720P_VIDEO_PANEL,
+	HX8394F_720P_VIDEO_PANEL,		//SW4-HL-Display-AddCTCPanelHX8394FInsideSupport-00+_20150423
+	NT35521S_720P_VIDEO_PANEL,		//SW4-HL-Dispay-BringUpNT35521S_ForM378M379-00+_20151022
+	NT35521S_NG_720P_VIDEO_PANEL,	//SW4-HL-Dispay-BringUpNT35521S_ForM378M379-02+_20151120
+	NT35521S_INNO_720P_VIDEO_PANEL,	//SW4-HL-Dispay-BringUpNt35521sWithBlIcNt50568_ForD1M-00+_20160603
+	FT8716_1080P_VIDEO_PANEL,	//E1M
+	FT8716_720P_VIDEO_PANEL,	    /* E1M-576 - Add 720P Video panel */
+	SIMULATOR_VIDEO_PANEL	    /* E1M-576 - Add 720P Video panel */
+};
+//SW4-HL-Display-BringUpNT35521-00+}_20150224
+//SW4-HL-Display-AddCTCPanelHX8394DInsideSupport-00*}_20150317
+
 static inline const char *mdss_panel2str(u32 panel)
 {
 	static const char const *names[] = {
@@ -368,6 +385,8 @@ struct mdss_panel_info {
 	u32 yres;
 	u32 physical_width;
 	u32 physical_height;
+	u32 physical_width_full;	//SW4-HL-Display-BringUpNT35521-00+_20150224
+	u32 physical_height_full;	//SW4-HL-Display-BringUpNT35521-00+_20150224
 	u32 bpp;
 	u32 type;
 	u32 wait_cycle;
@@ -375,6 +394,7 @@ struct mdss_panel_info {
 	u32 brightness_max;
 	u32 bl_max;
 	u32 bl_min;
+	int old_bl;
 	u32 fb_num;
 	u32 clk_rate;
 	u32 clk_min;
@@ -437,6 +457,8 @@ struct mdss_panel_info {
 
 	/* debugfs structure for the panel */
 	struct mdss_panel_debugfs_info *debugfs_info;
+	//SW4-HL-Display-BringUpNT35521-00+_20150224
+	int pid;
 };
 
 struct mdss_panel_data {

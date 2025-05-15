@@ -1,0 +1,34 @@
+/* Copyright (c) 2014, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/dts-v1/;
+
+#include "msm8909-fao-evt.dtsi"
+#include "msm8909-pm8909.dtsi"
+#include "msm8909-pm8909-fao-evt.dtsi"
+#include "msm8909-memory-pstore.dtsi"
+#include "components/camera/msm8909-camera-flash-fao-dvt-MAX77387.dtsi"
+
+/ {
+	model = "Qualcomm Technologies, Inc. MSM8909-PM8909 / FIH FALCON(FOT) SKU_TW 2.0";
+	compatible = "qcom,msm8909-fih", "qcom,msm8909", "qcom,cdp";
+	qcom,msm-id =	<245 0x2000>, <258 0x2000>,<265 0x2000>, <275 0x2000>;
+	qcom,board-id= <0xA1 0>;
+};
+
+&soc {
+	i2c@78b5000 { /* BLSP1 QUP1 */ /* For Gyro */
+		/include/ "components/sensors/gyro_mpu3050_i2c_0x68_v1.dtsi"
+		/include/ "components/sensors/gyro_l3dg20_i2c_0x6a_v0.dtsi"
+                /include/ "components/sensors/gsensor_kxcjk1013_i2c_0x0f_v0.dtsi"
+	};
+};

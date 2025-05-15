@@ -260,6 +260,11 @@ struct fb_var_screeninfo {
 	__u32 height;			/* height of picture in mm    */
 	__u32 width;			/* width of picture in mm     */
 
+	//SW4-HL-Display-BringUpNT35521-00+{_20150224
+	__u32 height_full;			/* height of picture with decimal point  in mm    */
+	__u32 width_full;			/* width of picture with decimal point in mm     */
+	//SW4-HL-Display-BringUpNT35521-00+}_20150224
+
 	__u32 accel_flags;		/* (OBSOLETE) see fb_info.flags */
 
 	/* Timing: All values in pixclocks, except pixclock (of course) */

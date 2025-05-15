@@ -28,6 +28,27 @@
 #define QPNP_VIB_MAX_LEVEL		31
 #define QPNP_VIB_MIN_LEVEL		12
 
+/* Black Box */
+#define BBOX_VIBRATOR_PROBE_FAIL do {printk("BBox;%s: Probe fail\n", __func__); printk("BBox::UEC;19::0\n");} while (0);
+#define BBOX_VIBRATOR_ENABLE_PWM_FAIL do {printk("BBox;%s: Enable PWM fail\n", __func__); printk("BBox::UEC;19::5\n");} while (0);
+
+// add for control vibrator level start
+struct vib_map{
+  int vib_level;
+  int voltage_level;
+};
+
+static struct vib_map vib_level[] = {
+	{10 , QPNP_VIB_MIN_LEVEL},
+	{20 , 17},
+	{30 , 22},
+	{40 , 27},
+	{50 , QPNP_VIB_MAX_LEVEL}
+};
+
+#define QPNP_VIB_LEVEL_NUM sizeof(vib_level) / sizeof(vib_level[0])
+// add for control vibrator level end
+
 #define QPNP_VIB_DEFAULT_TIMEOUT	15000
 #define QPNP_VIB_DEFAULT_VTG_LVL	3100
 
@@ -66,6 +87,8 @@ struct qpnp_vib {
 	int timeout;
 	struct mutex lock;
 };
+
+static struct qpnp_vib *g_vib = NULL; // add for control vibrator level
 
 static int qpnp_vib_read_u8(struct qpnp_vib *vib, u8 *data, u16 reg)
 {
@@ -126,6 +149,7 @@ static int qpnp_vibrator_config(struct qpnp_vib *vib)
 						vib->pwm_info.period_us);
 		if (rc < 0) {
 			dev_err(&vib->spmi->dev, "vib pwm config failed\n");
+			BBOX_VIBRATOR_ENABLE_PWM_FAIL;
 			pwm_free(vib->pwm_info.pwm_dev);
 			return -ENODEV;
 		}
@@ -179,15 +203,21 @@ static void qpnp_vib_enable(struct timed_output_dev *dev, int value)
 {
 	struct qpnp_vib *vib = container_of(dev, struct qpnp_vib,
 					 timed_dev);
-
+	//pr_err("qpnp_vib_enable value=%d,vtg_level =%d \n",value,vib->vtg_level);
 	mutex_lock(&vib->lock);
-	hrtimer_cancel(&vib->vib_timer);
 
-	if (value == 0)
-		vib->state = 0;
+	if (value == 0){
+		//vib->state = 0;
+		mutex_unlock(&vib->lock);
+		return;
+	}
 	else {
+		hrtimer_cancel(&vib->vib_timer);
 		value = (value > vib->timeout ?
 				 vib->timeout : value);
+		if (value < 30){
+		    value = 30;
+		}
 		vib->state = 1;
 		hrtimer_start(&vib->vib_timer,
 			      ktime_set(value / 1000, (value % 1000) * 1000000),
@@ -324,6 +354,58 @@ static int qpnp_vib_parse_dt(struct qpnp_vib *vib)
 
 	return 0;
 }
+// add for control vibrator level start
+static ssize_t level_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct qpnp_vib *vib = g_vib;
+	int count=0;
+	int tmpValue=50;
+	
+	for(count=0;count<QPNP_VIB_LEVEL_NUM;count++)
+	{
+		if(vib->vtg_level >= vib_level[count].voltage_level)
+		{
+			tmpValue = vib_level[count].vib_level;
+		}
+	}
+	return sprintf(buf, "%d\n", tmpValue);
+}
+
+static ssize_t level_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct qpnp_vib *vib = g_vib;
+	int value;
+	int tmpValue=QPNP_VIB_MAX_LEVEL;
+	int rc;
+	int count=0;
+	if (sscanf(buf, "%d", &value) != 1)
+		return -EINVAL;
+
+	if (value < 10 || value > 50)
+		return -EINVAL;
+
+	for(count=0;count<QPNP_VIB_LEVEL_NUM;count++)
+	{
+		if(value >= vib_level[count].vib_level)
+		{
+			tmpValue = vib_level[count].voltage_level;
+		}
+	}
+
+	vib->vtg_level = tmpValue;
+
+	dev_dbg(dev, "into vibrator level set vtg_level=>%d\n",vib->vtg_level);
+
+	rc = qpnp_vibrator_config(vib);
+	if (rc) {
+		dev_err(dev, "vib config failed\n");
+	}
+
+	return size;
+}
+
+static DEVICE_ATTR(level, S_IRUGO | S_IWUSR, level_show, level_store);
+// add for control vibrator level end
 
 static int qpnp_vibrator_probe(struct spmi_device *spmi)
 {
@@ -340,6 +422,7 @@ static int qpnp_vibrator_probe(struct spmi_device *spmi)
 	vib_resource = spmi_get_resource(spmi, 0, IORESOURCE_MEM, 0);
 	if (!vib_resource) {
 		dev_err(&spmi->dev, "Unable to get vibrator base address\n");
+		BBOX_VIBRATOR_PROBE_FAIL;
 		return -EINVAL;
 	}
 	vib->base = vib_resource->start;
@@ -347,12 +430,14 @@ static int qpnp_vibrator_probe(struct spmi_device *spmi)
 	rc = qpnp_vib_parse_dt(vib);
 	if (rc) {
 		dev_err(&spmi->dev, "DT parsing failed\n");
+		BBOX_VIBRATOR_PROBE_FAIL;
 		return rc;
 	}
 
 	rc = qpnp_vibrator_config(vib);
 	if (rc) {
 		dev_err(&spmi->dev, "vib config failed\n");
+		BBOX_VIBRATOR_PROBE_FAIL;
 		return rc;
 	}
 
@@ -367,8 +452,12 @@ static int qpnp_vibrator_probe(struct spmi_device *spmi)
 	vib->timed_dev.enable = qpnp_vib_enable;
 
 	dev_set_drvdata(&spmi->dev, vib);
-
+        g_vib = vib; // add for control vibrator level
 	rc = timed_output_dev_register(&vib->timed_dev);
+	if (rc < 0)
+		return rc;
+
+	rc = device_create_file(vib->timed_dev.dev, &dev_attr_level);
 	if (rc < 0)
 		return rc;
 
@@ -382,6 +471,7 @@ static int qpnp_vibrator_remove(struct spmi_device *spmi)
 	cancel_work_sync(&vib->work);
 	hrtimer_cancel(&vib->vib_timer);
 	timed_output_dev_unregister(&vib->timed_dev);
+	g_vib = NULL;  // add for control vibrator level
 	mutex_destroy(&vib->lock);
 
 	return 0;

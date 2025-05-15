@@ -86,7 +86,10 @@ struct loop_info64 {
 #define LOOP_GET_STATUS64	0x4C05
 #define LOOP_CHANGE_FD		0x4C06
 #define LOOP_SET_CAPACITY	0x4C07
-
+//@20150707 FAO-5081 Add, begin
+//After APK moved to SD,DUT can't enter apps and will auto back to home screen when launch apps
+#define LOOP_GET_LOOPNAME	0x4C10
+//@20150707 FAO-5081 Add, end
 /* /dev/loop-control interface */
 #define LOOP_CTL_ADD		0x4C80
 #define LOOP_CTL_REMOVE		0x4C81

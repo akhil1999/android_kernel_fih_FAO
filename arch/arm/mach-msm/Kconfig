@@ -1050,4 +1050,9 @@ config FSM9900_GSM_NL
 	  The serial port connection can be established to communicate with the
 	  GSM NL module.
 
+config FIH_IPO
+	bool "FIH IPO"
+	default y
+	help
+	Enable/Disable IPO
 endif

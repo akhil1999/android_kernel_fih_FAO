@@ -175,10 +175,16 @@ __do_user_fault(struct task_struct *tsk, unsigned long addr,
 #ifdef CONFIG_DEBUG_USER
 	if (((user_debug & UDBG_SEGV) && (sig == SIGSEGV)) ||
 	    ((user_debug & UDBG_BUS)  && (sig == SIGBUS))) {
+		/* 20150415, cherry pick [8926PFAL-2094]: Reduce unhandled page fault dump, start */
+		/*
 		printk(KERN_DEBUG "%s: unhandled page fault (%d) at 0x%08lx, code 0x%03x\n",
 		       tsk->comm, sig, addr, fsr);
 		show_pte(tsk->mm, addr);
 		show_regs(regs);
+		*/
+		printk(KERN_DEBUG "%s(%d): unhandled page fault (%d) at 0x%08lx, code 0x%03x\n",
+		       tsk->comm, task_pid_nr(current), sig, addr, fsr);
+		/* 20150415, cherry pick [8926PFAL-2094]: Reduce unhandled page fault dump, end */
 	}
 #endif
 

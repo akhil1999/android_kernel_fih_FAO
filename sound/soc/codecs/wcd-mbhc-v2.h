@@ -245,6 +245,8 @@ struct wcd_mbhc_config {
 	uint32_t linein_th;
 	struct wcd_mbhc_moisture_cfg moist_cfg;
 	bool insert_detect;
+	//20150312, add for new/old HW support FAO-4
+	bool fih_hs_support;
 };
 
 struct wcd_mbhc_intr {

@@ -27,6 +27,9 @@
 #include "mdp3.h"
 #include "mdp3_ppp.h"
 
+//SW4-HL-FixKernelPanicWhenBootingIntoOS-00+_20150514
+bool gInSplashScreen = 1;
+
 #define VSYNC_EXPIRE_TICK	4
 
 static void mdp3_ctrl_pan_display(struct msm_fb_data_type *mfd);
@@ -136,7 +139,8 @@ int mdp3_ctrl_notify(struct mdp3_session_data *ses, int event)
 	return blocking_notifier_call_chain(&ses->notifier_head, event, ses);
 }
 
-static void mdp3_dispatch_dma_done(struct work_struct *work)
+//static void mdp3_dispatch_dma_done(struct work_struct *work)
+static void mdp3_dispatch_dma_done(struct kthread_work *work)
 {
 	struct mdp3_session_data *session;
 	int cnt = 0;
@@ -210,7 +214,8 @@ void dma_done_notify_handler(void *arg)
 {
 	struct mdp3_session_data *session = (struct mdp3_session_data *)arg;
 	atomic_inc(&session->dma_done_cnt);
-	schedule_work(&session->dma_done_work);
+//	schedule_work(&session->dma_done_work);
+	queue_kthread_work(&session->worker, &session->dma_done_work);
 	complete_all(&session->dma_completion);
 }
 
@@ -966,6 +971,7 @@ static int mdp3_ctrl_off(struct msm_fb_data_type *mfd)
 		mdp3_session->in_splash_screen = 0;
 		mdp3_res->solid_fill_vote_en = false;
 		mdp3_session->status = 0;
+		gInSplashScreen = mdp3_session->in_splash_screen;	//SW4-HL-FixKernelPanicWhenBootingIntoOS-00+_20150514
 		if (atomic_dec_return(&mdp3_res->active_intf_cnt) != 0) {
 			pr_warn("active_intf_cnt unbalanced\n");
 			atomic_set(&mdp3_res->active_intf_cnt, 0);
@@ -1041,6 +1047,7 @@ static int mdp3_ctrl_reset(struct msm_fb_data_type *mfd)
 		mdp3_session->first_commit = true;
 		mfd->panel_info->cont_splash_enabled = 0;
 		mdp3_session->in_splash_screen = 0;
+		gInSplashScreen = mdp3_session->in_splash_screen;	//SW4-HL-FixKernelPanicWhenBootingIntoOS-00+_20150514
 		mdp3_splash_done(mfd->panel_info);
 		/* Disable Auto refresh */
 		mdp3_autorefresh_disable(mfd->panel_info);
@@ -1325,8 +1332,14 @@ static int mdp3_ctrl_display_commit_kickoff(struct msm_fb_data_type *mfd,
 
 	mdp3_session->vsync_before_commit = 0;
 	if (!splash_done || mdp3_session->esd_recovery == true) {
-		if(panel && panel->set_backlight)
-			panel->set_backlight(panel, panel->panel_info.bl_max);
+		//SW4-HL-Display-FixBacklightFlashIssue_FAO-7444-00-{_20151019
+		//if(panel && panel->set_backlight)
+		//	panel->set_backlight(panel, panel->panel_info.bl_max);
+		//SW4-HL-Display-FixBacklightFlashIssue_FAO-7444-00-}_20151019
+		/* E1M: while doing ESD recovery, need to set backlight level */
+		if(panel && panel->set_backlight && panel->panel_info.old_bl >= 0)
+			panel->set_backlight(panel, panel->panel_info.old_bl);
+		/* end E1M */
 		splash_done = true;
 		mdp3_session->esd_recovery = false;
 	}
@@ -1437,8 +1450,14 @@ static void mdp3_ctrl_pan_display(struct msm_fb_data_type *mfd)
 
 	mdp3_session->vsync_before_commit = 0;
 	if (!splash_done || mdp3_session->esd_recovery == true) {
-		if(panel && panel->set_backlight)
-			panel->set_backlight(panel, panel->panel_info.bl_max);
+		//SW4-HL-Display-FixBacklightFlashIssue_FAO-7444-00-{_20151019
+		//if(panel && panel->set_backlight)
+		//	panel->set_backlight(panel, panel->panel_info.bl_max);
+		//SW4-HL-Display-FixBacklightFlashIssue_FAO-7444-00-}_20151019
+		/* E1M: while doing ESD recovery, need to set backlight level */
+		if(panel && panel->set_backlight && panel->panel_info.old_bl >= 0)
+			panel->set_backlight(panel, panel->panel_info.old_bl);
+		/* end E1M */
 		splash_done = true;
 		mdp3_session->esd_recovery = false;
 	}
@@ -2573,6 +2592,7 @@ int mdp3_ctrl_init(struct msm_fb_data_type *mfd)
 	u32 intf_type = MDP3_DMA_OUTPUT_SEL_DSI_VIDEO;
 	int rc;
 	int splash_mismatch = 0;
+	struct sched_param sched = { .sched_priority = 16 };
 
 	pr_info("mdp3_ctrl_init\n");
 	rc = mdp3_parse_dt_splash(mfd);
@@ -2596,7 +2616,21 @@ int mdp3_ctrl_init(struct msm_fb_data_type *mfd)
 	}
 	mutex_init(&mdp3_session->lock);
 	INIT_WORK(&mdp3_session->clk_off_work, mdp3_dispatch_clk_off);
-	INIT_WORK(&mdp3_session->dma_done_work, mdp3_dispatch_dma_done);
+//	INIT_WORK(&mdp3_session->dma_done_work, mdp3_dispatch_dma_done);
+	init_kthread_worker(&mdp3_session->worker);
+	init_kthread_work(&mdp3_session->dma_done_work, mdp3_dispatch_dma_done);
+
+	mdp3_session->thread = kthread_run(kthread_worker_fn, &mdp3_session->worker,
+                      "mdp3_dispatch_dma_done");
+
+	if (IS_ERR(mdp3_session->thread)) {
+		pr_err("Can't initialize mdp3_dispatch_dma_done thread\n");
+		rc = -ENODEV;
+		goto init_done;
+	}
+
+	sched_setscheduler(mdp3_session->thread, SCHED_FIFO, &sched);
+
 	atomic_set(&mdp3_session->vsync_countdown, 0);
 	mutex_init(&mdp3_session->histo_lock);
 	mdp3_session->dma = mdp3_get_dma_pipe(MDP3_DMA_CAP_ALL);
@@ -2676,6 +2710,7 @@ int mdp3_ctrl_init(struct msm_fb_data_type *mfd)
 	if (mdp3_get_cont_spash_en()) {
 		mdp3_session->clk_on = 1;
 		mdp3_session->in_splash_screen = 1;
+		gInSplashScreen = mdp3_session->in_splash_screen;	//SW4-HL-FixKernelPanicWhenBootingIntoOS-00+_20150514
 		mdp3_ctrl_notifier_register(mdp3_session,
 			&mdp3_session->mfd->mdp_sync_pt_data.notifier);
 	}
@@ -2699,3 +2734,6 @@ init_done:
 
 	return rc;
 }
+
+EXPORT_SYMBOL(gInSplashScreen);	//SW4-HL-FixKernelPanicWhenBootingIntoOS-00+_20150514
+

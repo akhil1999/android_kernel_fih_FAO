@@ -44,6 +44,11 @@ struct ax88172_int_data {
 	__le16 res3;
 } __packed;
 
+/* LED Ioctl */
+int flag = 0;
+u16 Led1;
+u16 Led2;
+
 static void asix_status(struct usbnet *dev, struct urb *urb)
 {
 	struct ax88172_int_data *event;
@@ -105,12 +110,160 @@ static u32 asix_get_link(struct net_device *net)
 
 	return mii_link_ok(&dev->mii);
 }
+///@20170519 start
+int ioctl_signature(struct usbnet *dev, AX_IOCTL_COMMAND *info)
+{
+	printk(KERN_INFO "%s()\n", __func__);
 
+	strncpy(info->sig, AX88772B_SIGNATURE, strlen(AX88772B_SIGNATURE));
+
+	return 0;
+}
+
+int ioctl_read_eeprom(struct usbnet *dev, AX_IOCTL_COMMAND *info)
+{
+	int i, retval = 0;
+	unsigned short tmp;
+
+	printk(KERN_INFO "%s():size=%u, delay=%u\n", __func__, info->size, info->delay );
+
+	for (i = 0; i < info->size; i++) 
+	{  ///info->size
+		retval = asix_read_cmd(dev, AX_CMD_READ_EEPROM, i,
+							0, 2, &tmp);
+		if(retval < 0) 
+		{
+			break;
+		}
+
+		*(info->buf + i) = be16_to_cpu(tmp);
+#if 1
+		// Specify delay by user space
+		mdelay(info->delay);
+#else
+		mdelay(50);
+#endif
+	}
+
+	printk(KERN_INFO "%s():retval=%d\n", __func__, retval );
+
+	return retval;
+}
+int ioctl_write_eeprom(struct usbnet *dev, AX_IOCTL_COMMAND *info)
+{
+	int i, retval;
+
+	printk(KERN_INFO "%s():size=%u, delay=%u\n", __func__, info->size, info->delay );
+	
+	retval = asix_write_cmd(dev, AX_CMD_WRITE_ENABLE, 0,
+							0, 0, NULL);
+	if (retval < 0) 
+	{
+		printk(KERN_ERR "%s():fail#1, retval=%d\n", __func__, retval );
+		return retval;
+	}
+
+	mdelay(50);
+
+	for (i = 0; i < info->size; i++)
+	{
+		retval = asix_write_cmd(dev, AX_CMD_WRITE_EEPROM, i,
+				cpu_to_be16(*(info->buf + i)), 0, NULL);
+
+		if (retval < 0) 
+		{
+			printk(KERN_ERR "%s():fail#2, retval=%d\n", __func__, retval );
+			return retval;
+		}
+		mdelay(info->delay);
+	}
+
+	retval = asix_write_cmd(dev, AX_CMD_WRITE_DISABLE, 0, 0, 0, NULL);
+
+	mdelay(info->delay);
+
+	retval = asix_write_cmd(dev, AX_CMD_WRITE_GPIOS, AX_GPIO_RSE, 0, 0, NULL);
+
+	mdelay(50);
+
+	printk(KERN_INFO "%s():retval=%d\n", __func__, retval );
+
+	return retval;
+}
+
+int ioctl_led_control(struct usbnet *dev, AX_IOCTL_COMMAND *info)
+{
+	int ret;
+
+	if (flag == 0) {
+		Led1 = ((info->size & 0xFF00) >> 8) | ((info->size & 0xFF) << 8);
+		flag = 1;
+		printk("ioctl_write_mac Led1:%04X\n", Led1);
+		return 0;
+	} else {
+		Led2 = ((info->size & 0xFF00) >> 8) | ((info->size & 0xFF) << 8);
+		flag = 0;
+		ret = asix_write_cmd(dev, 0x70, Led2, Led1, 0, NULL);
+		printk("ioctl_write_mac Led2:%04X\n", Led2);
+	}
+
+	return ret;
+}
+
+typedef int (*IOCTRL_TABLE)(struct usbnet *dev, AX_IOCTL_COMMAND *info);
+
+IOCTRL_TABLE ioctl_tbl[] = {
+	ioctl_signature,        //AX_SIGNATURE
+	ioctl_read_eeprom,
+	ioctl_write_eeprom,
+	ioctl_led_control,
+};
+///@20170519 end
 static int asix_ioctl (struct net_device *net, struct ifreq *rq, int cmd)
 {
+///@20170519 start
+#if 0
 	struct usbnet *dev = netdev_priv(net);
 
 	return generic_mii_ioctl(&dev->mii, if_mii(rq), cmd, NULL);
+#else
+	struct usbnet *dev = netdev_priv(net);
+
+	AX_IOCTL_COMMAND info;
+	AX_IOCTL_COMMAND *uptr = (AX_IOCTL_COMMAND*) rq->ifr_data;
+	int private_cmd;
+
+    printk(KERN_INFO "%s():start\n", __func__ );
+
+	switch (cmd) {
+	case AX_PRIVATE :
+		if (copy_from_user(&info, uptr, sizeof(AX_IOCTL_COMMAND)))
+		{
+			printk(KERN_ERR "%s():copy from user fail\n", __func__ );
+			return -EFAULT;
+		}
+
+		private_cmd = info.ioctl_cmd;
+		printk(KERN_INFO "%s():command=%d\n", __func__, private_cmd);
+		if ((*ioctl_tbl[private_cmd])(dev,&info) < 0)
+			return -EFAULT;
+
+		if (copy_to_user(uptr, &info, sizeof(AX_IOCTL_COMMAND)))
+		{
+			printk(KERN_ERR "%s():copy to user fail\n", __func__ );
+			return -EFAULT;
+		}
+
+		break;
+
+	default :
+		return  generic_mii_ioctl(&dev->mii, if_mii(rq), cmd, NULL);
+	}
+    printk(KERN_INFO "%s():end\n", __func__ );
+	
+	return 0;
+#endif
+///@20170519 end
 }
 
 /* We need to override some ethtool_ops so we require our

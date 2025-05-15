@@ -41,6 +41,9 @@ enum {
 	QPNP_VREG_DEBUG_OCP		= BIT(5), /* Show VS OCP IRQ events */
 };
 
+#define BBOX_REGULATOR_PROBE_FAIL do {printk("BBox;%s: Probe fail\n", __func__); printk("BBox::UEC;17::0\n");} while (0)
+#define BBOX_REGULATOR_SETV_FAIL do {printk("BBox;%s: Set voltage fail\n", __func__); printk("BBox::UEC;17::2\n");} while (0)
+
 static int qpnp_vreg_debug_mask;
 module_param_named(
 	debug_mask, qpnp_vreg_debug_mask, int, S_IRUSR | S_IWUSR
@@ -791,6 +794,7 @@ static int qpnp_regulator_common_set_voltage(struct regulator_dev *rdev,
 			&range_sel, &voltage_sel, selector);
 	if (rc < 0) {
 		vreg_err(vreg, "could not set voltage, rc=%d\n", rc);
+		BBOX_REGULATOR_SETV_FAIL;
 		return rc;
 	}
 
@@ -816,6 +820,9 @@ static int qpnp_regulator_common_set_voltage(struct regulator_dev *rdev,
 		vreg_err(vreg, "SPMI write failed, rc=%d\n", rc);
 	else
 		qpnp_vreg_show_state(rdev, QPNP_REGULATOR_ACTION_VOLTAGE);
+
+	if (rc)
+		BBOX_REGULATOR_SETV_FAIL;
 
 	return rc;
 }
@@ -855,6 +862,7 @@ static int qpnp_regulator_single_range_set_voltage(struct regulator_dev *rdev,
 		&voltage_sel, selector);
 	if (rc) {
 		vreg_err(vreg, "could not set voltage, rc=%d\n", rc);
+		BBOX_REGULATOR_SETV_FAIL;
 		return rc;
 	}
 
@@ -870,6 +878,8 @@ static int qpnp_regulator_single_range_set_voltage(struct regulator_dev *rdev,
 	else
 		qpnp_vreg_show_state(rdev, QPNP_REGULATOR_ACTION_VOLTAGE);
 
+	if(rc)
+		BBOX_REGULATOR_SETV_FAIL;
 	return rc;
 }
 
@@ -899,6 +909,7 @@ static int qpnp_regulator_ult_lo_smps_set_voltage(struct regulator_dev *rdev,
 			&range_sel, &voltage_sel, selector);
 	if (rc < 0) {
 		vreg_err(vreg, "could not set voltage, rc=%d\n", rc);
+		BBOX_REGULATOR_SETV_FAIL;
 		return rc;
 	}
 
@@ -921,6 +932,8 @@ static int qpnp_regulator_ult_lo_smps_set_voltage(struct regulator_dev *rdev,
 		qpnp_vreg_show_state(rdev, QPNP_REGULATOR_ACTION_VOLTAGE);
 	}
 
+	if(rc)
+		BBOX_REGULATOR_SETV_FAIL;
 	return rc;
 }
 
@@ -1820,6 +1833,7 @@ static int qpnp_regulator_probe(struct spmi_device *spmi)
 	if (!vreg) {
 		dev_err(&spmi->dev, "%s: Can't allocate qpnp_regulator\n",
 			__func__);
+		BBOX_REGULATOR_PROBE_FAIL;
 		return -ENOMEM;
 	}
 
@@ -1833,6 +1847,7 @@ static int qpnp_regulator_probe(struct spmi_device *spmi)
 			dev_err(&spmi->dev, "%s: unable to allocate memory\n",
 					__func__);
 			kfree(vreg);
+			BBOX_REGULATOR_PROBE_FAIL;
 			return -ENOMEM;
 		}
 		memset(&of_pdata, 0,
@@ -1848,6 +1863,7 @@ static int qpnp_regulator_probe(struct spmi_device *spmi)
 			dev_err(&spmi->dev, "%s: DT parsing failed, rc=%d\n",
 					__func__, rc);
 			kfree(vreg);
+			BBOX_REGULATOR_PROBE_FAIL;
 			return -ENOMEM;
 		}
 
@@ -1860,6 +1876,7 @@ static int qpnp_regulator_probe(struct spmi_device *spmi)
 		dev_err(&spmi->dev, "%s: no platform data specified\n",
 			__func__);
 		kfree(vreg);
+		BBOX_REGULATOR_PROBE_FAIL;
 		return -EINVAL;
 	}
 
@@ -1890,6 +1907,7 @@ static int qpnp_regulator_probe(struct spmi_device *spmi)
 		dev_err(&spmi->dev, "%s: Can't allocate regulator name\n",
 			__func__);
 		kfree(vreg);
+		BBOX_REGULATOR_PROBE_FAIL;
 		return -ENOMEM;
 	}
 	strlcpy(reg_name, pdata->init_data.constraints.name,
@@ -1968,6 +1986,7 @@ bail:
 	kfree(vreg->rdesc.name);
 	kfree(vreg);
 
+	BBOX_REGULATOR_PROBE_FAIL;
 	return rc;
 }
 

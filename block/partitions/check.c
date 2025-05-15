@@ -139,7 +139,10 @@ check_partition(struct gendisk *hd, struct block_device *bdev)
 {
 	struct parsed_partitions *state;
 	int i, res, err;
-
+//@20150710 FAO-4646 Add, begin
+//DUT can't power on with a bad TF card.
+	extern void mmc1_set_short_suspend_delay(bool rel);
+//@20150707 FAO-4646 Add, end
 	state = allocate_partitions(hd);
 	if (!state)
 		return NULL;
@@ -180,8 +183,16 @@ check_partition(struct gendisk *hd, struct block_device *bdev)
 	if (err)
 	/* The partition is unrecognized. So report I/O errors if there were any */
 		res = err;
-	if (!res)
+//@20150710 FAO-4646 Add, begin
+//DUT can't power on with a bad TF card.
+	if (!res){
 		strlcat(state->pp_buf, " unknown partition table\n", PAGE_SIZE);
+		if(!strncmp(state->pp_buf," mmcblk1",8))
+		{
+			   mmc1_set_short_suspend_delay(true);
+		}
+	}
+//@20150707 FAO-4646 Add, end		
 	else if (warn_no_part)
 		strlcat(state->pp_buf, " unable to read partition table\n", PAGE_SIZE);
 

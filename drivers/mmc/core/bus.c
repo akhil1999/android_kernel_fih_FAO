@@ -25,9 +25,15 @@
 #include "sdio_cis.h"
 #include "bus.h"
 
+#include "../../../arch/arm/mach-msm/fih/fih_sd_status.h"
+
 #define to_mmc_driver(d)	container_of(d, struct mmc_driver, drv)
 #define RUNTIME_SUSPEND_DELAY_MS 10000
-
+//@20150710  FAO-4646 Add, begin
+//DUT can't power on with a bad TF card.
+#define RUNTIME_SHORT_SUSPEND_DELAY_MS 5000
+static bool short_suspen_delay=false;
+//@20150707 FAO-4646 Add, end
 static ssize_t mmc_type_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -101,6 +107,13 @@ mmc_bus_uevent(struct device *dev, struct kobj_uevent_env *env)
 	 * for the module it carries no information as to what is inserted.
 	 */
 	retval = add_uevent_var(env, "MODALIAS=mmc:block");
+
+	if(card->type == MMC_TYPE_SD && strstr(env->buf, "ACTION=add")) {
+		fih_sd_status_setup("1");
+	}
+	else if(card->type == MMC_TYPE_SD && strstr(env->buf, "ACTION=remove")) {
+		fih_sd_status_setup("0");
+	}
 
 	return retval;
 }
@@ -305,6 +318,19 @@ void mmc_unregister_driver(struct mmc_driver *drv)
 
 EXPORT_SYMBOL(mmc_unregister_driver);
 
+//@20150710 FAO-4646 Add, begin
+//DUT can't power on with a bad TF card.
+void mmc1_set_short_suspend_delay(bool rel)
+{
+  if(rel)
+       short_suspen_delay=true;
+  else
+  	short_suspen_delay=false;
+}
+
+EXPORT_SYMBOL(mmc1_set_short_suspend_delay);
+//@20150707 FAO-4646 Add, end
+
 static void mmc_release_card(struct device *dev)
 {
 	struct mmc_card *card = mmc_dev_to_card(dev);
@@ -420,6 +446,11 @@ int mmc_add_card(struct mmc_card *card)
 	else if (!mmc_card_sdio(card) && mmc_use_core_runtime_pm(card->host))
 		pm_runtime_enable(&card->dev);
 
+//@20150710 FAO-4646 Add, begin
+//DUT can't power on with a bad TF card.
+       card->idle_timeout = RUNTIME_SUSPEND_DELAY_MS;
+//@20150707 FAO-4646 Add, end
+
 	if (mmc_card_sdio(card)) {
 		ret = device_init_wakeup(&card->dev, true);
 		if (ret)
@@ -443,8 +474,19 @@ int mmc_add_card(struct mmc_card *card)
 			pr_err("%s: %s: creating runtime pm sysfs entry: failed: %d\n",
 			       mmc_hostname(card->host), __func__, ret);
 		/* Default timeout is 10 seconds */
+//@20150710 FAO-4646 Add, begin
+//DUT can't power on with a bad TF card.
+		if(strncmp(mmc_hostname(card->host),"mmc1",4)){
 		card->idle_timeout = RUNTIME_SUSPEND_DELAY_MS;
+		}else{
+		   if(short_suspen_delay)
+		      card->idle_timeout = RUNTIME_SHORT_SUSPEND_DELAY_MS;
+		   else
+		      card->idle_timeout = RUNTIME_SUSPEND_DELAY_MS;
+			}
+		   pr_info("mmc1 card->idle_timeout: %d\n",card->idle_timeout);	
 	}
+//@20150707 FAO-4646 Add, end
 
 	mmc_card_set_present(card);
 

@@ -16,6 +16,7 @@ obj-$(CONFIG_ADF)		  += adf/
 obj-$(CONFIG_VT)		  += console/
 obj-$(CONFIG_LOGO)		  += logo/
 obj-y				  += backlight/
+obj-y				  += boost/
 
 obj-$(CONFIG_EXYNOS_VIDEO)     += exynos/
 

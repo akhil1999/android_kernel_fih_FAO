@@ -28,9 +28,16 @@
 #include "mdss_panel.h"
 #include "mdss_debug.h"
 
+#include "../../../../arch/arm/mach-msm/fih/fih_lcm.h"	/* E1M-390 - Add error count and status for Run-In */
+
 #define VSYNC_PERIOD 17
 #define DMA_TX_TIMEOUT 200
 #define DMA_TPG_FIFO_LEN 64
+
+//SW4-HL-Display-BBox-00+{_20150610
+/* Black Box */
+#define BBOX_PANEL_MIPI_FAIL do {printk("BBox;%s: MIPI fail\n", __func__); printk("BBox::UEC;0::0\n");} while (0);
+//SW4-HL-Display-BBox-00+}_20150610
 
 struct mdss_dsi_ctrl_pdata *ctrl_list[DSI_CTRL_MAX];
 
@@ -964,6 +971,11 @@ void mdss_dsi_cmd_bta_sw_trigger(struct mdss_panel_data *pdata)
 
 static int mdss_dsi_read_status(struct mdss_dsi_ctrl_pdata *ctrl)
 {
+/*
+ * Because msm8909 ESD driver do not support to read multiple registers to detect LCM IC status,
+ * we upgrade ESD driver to msm8937 version
+ */
+#if 0 //msm8909 version
 	struct dcs_cmd_req cmdreq;
 
 	memset(&cmdreq, 0, sizeof(cmdreq));
@@ -975,8 +987,42 @@ static int mdss_dsi_read_status(struct mdss_dsi_ctrl_pdata *ctrl)
 	cmdreq.rbuf = ctrl->status_buf.data;
 
 	return mdss_dsi_cmdlist_put(ctrl, &cmdreq);
-}
+#else //msm8937 version
+	int i, rc, *lenp;
+	int start = 0;
+	struct dcs_cmd_req cmdreq;
 
+	rc = 1;
+	lenp = ctrl->status_valid_params ?: ctrl->status_cmds_rlen;
+
+	for (i = 0; i < ctrl->status_cmds.cmd_cnt; ++i) {
+		memset(&cmdreq, 0, sizeof(cmdreq));
+		cmdreq.cmds = ctrl->status_cmds.cmds + i;
+		cmdreq.cmds_cnt = 1;
+		cmdreq.flags = CMD_REQ_COMMIT | CMD_CLK_CTRL | CMD_REQ_RX;
+		cmdreq.rlen = ctrl->status_cmds_rlen[i];
+		cmdreq.cb = NULL;
+		cmdreq.rbuf = ctrl->status_buf.data;
+
+		if (ctrl->status_cmds.link_state == DSI_LP_MODE)
+			cmdreq.flags  |= CMD_REQ_LP_MODE;
+		else if (ctrl->status_cmds.link_state == DSI_HS_MODE)
+			cmdreq.flags |= CMD_REQ_HS_MODE;
+
+		rc = mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+		if (rc <= 0) {
+			pr_err("%s: get status: fail\n", __func__);
+			return rc;
+		}
+
+		memcpy(ctrl->return_buf + start,
+			ctrl->status_buf.data, lenp[i]);
+		start += lenp[i];
+	}
+
+	return rc;
+#endif
+}
 
 /**
  * mdss_dsi_reg_status_check() - Check dsi panel status through reg read
@@ -998,7 +1044,6 @@ int mdss_dsi_reg_status_check(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 	}
 
 	pr_debug("%s: Checking Register status\n", __func__);
-
 	mdss_dsi_clk_ctrl(ctrl_pdata, DSI_ALL_CLKS, 1);
 
 	if (ctrl_pdata->status_cmds.link_state == DSI_HS_MODE)
@@ -1347,6 +1392,8 @@ static int mdss_dsi_cmds2buf_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 				len = mdss_dsi_cmd_dma_tpg_tx(ctrl, tp);
 			else
 				len = mdss_dsi_cmd_dma_tx(ctrl, tp);
+			//SW4-HL-Display-BringUpNT35521-00+_20150224
+			pr_debug("\n\n******************** [HL] %s, dchdr->wait = 0x%x, cm->payload[0] = 0x%x, cm->payload[1] = 0x%x, cm->payload[2] = 0x%x  **********************\n\n", __func__, dchdr->wait, cm->payload[0], cm->payload[1], cm->payload[2]);
 			if (IS_ERR_VALUE(len)) {
 				mdss_dsi_disable_irq(ctrl, DSI_CMD_TERM);
 				pr_err("%s: failed to call cmd_dma_tx for cmd = 0x%x\n",
@@ -1678,6 +1725,13 @@ do_send:
 	case DTYPE_DCS_LREAD_RESP:
 		mdss_dsi_long_read_resp(rp);
 		break;
+	//SW4-HL-Display-EnableDisplayCheckMechanism-00+{_20150714
+	case 0x0A:
+		mdss_dsi_short_read1_resp(rp);
+		rp->len = 1;
+		rp->read_cnt = 1;
+		break;
+	//SW4-HL-Display-EnableDisplayCheckMechanism-00+}_20150714
 	default:
 		pr_warning("%s:Invalid response cmd\n", __func__);
 		rp->len = 0;
@@ -1715,7 +1769,6 @@ static int mdss_dsi_cmd_dma_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 
 	len = ALIGN(tp->len, 4);
 	ctrl->dma_size = ALIGN(tp->len, SZ_4K);
-
 
 	if (ctrl->mdss_util->iommu_attached()) {
 		int ret = msm_iommu_map_contig_buffer(tp->dmap,
@@ -1792,7 +1845,12 @@ static int mdss_dsi_cmd_dma_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 	}
 
 	if (ret == 0)
+	//SW4-HL-Display-BBox-00*{_20150610
+	{
+		BBOX_PANEL_MIPI_FAIL
 		ret = -ETIMEDOUT;
+	}
+	//SW4-HL-Display-BBox-00*}_20150610
 	else
 		ret = tp->len;
 
@@ -2401,6 +2459,10 @@ void mdss_dsi_ack_err_status(struct mdss_dsi_ctrl_pdata *ctrl)
 {
 	u32 status;
 	unsigned char *base;
+/* E1M-390 - Add error count and status for Run-In */
+	static char page_cnt[32] = {0};
+	static char page_status[32] ={0};	//SW4-HL-Display-AckErrCountAndStatus-00+_20161014
+/* end E1M-390 */
 
 	base = ctrl->ctrl_base;
 
@@ -2411,6 +2473,17 @@ void mdss_dsi_ack_err_status(struct mdss_dsi_ctrl_pdata *ctrl)
 		/* Writing of an extra 0 needed to clear error bits */
 		MIPI_OUTP(base + 0x0068, 0);
 		pr_err("%s: status=%x\n", __func__, status);
+
+/* E1M-390 - Add error count and status for Run-In */
+		/*<<EricHsieh, AwER*/
+		ctrl->err_cont.dsi_ack_err_cnt++;
+		ctrl->err_cont.dsi_ack_err_status = status;
+		sprintf(page_cnt, "0x%x\n",ctrl->err_cont.dsi_ack_err_cnt);
+		sprintf(page_status, "0x%x\n",ctrl->err_cont.dsi_ack_err_status);
+		fih_awer_cnt_set(page_cnt);
+		fih_awer_status_set(page_status);
+		/*>>EricHsieh, AwER*/
+/* end E1M-390 */
 	}
 }
 
@@ -2464,9 +2537,11 @@ void mdss_dsi_fifo_status(struct mdss_dsi_ctrl_pdata *ctrl)
                  * expected, Check the dfps status and avoid the log. However,
                  * FIFO errors needs to be cleared.
                  */
+		//SW4-HL-Display-AvoidConsoleCrashBecauseOfPrntingTooManyErrorMsgs-00*{_20150427
 		if (!ctrl->dfps_status)
-			pr_err("%s: status=%x\n", __func__, status);
-
+			if (printk_ratelimit())
+				pr_err("%s: status=%x\n", __func__, status);
+		//SW4-HL-Display-AvoidConsoleCrashBecauseOfPrntingTooManyErrorMsgs-00*}_20150427
 		/*
 		 * if DSI FIFO overflow is masked,
 		 * do not report overflow error
@@ -2500,7 +2575,10 @@ void mdss_dsi_status(struct mdss_dsi_ctrl_pdata *ctrl)
 
 	if (status & 0x80000000) { /* INTERLEAVE_OP_CONTENTION */
 		MIPI_OUTP(base + 0x0008, status);
-		pr_err("%s: status=%x\n", __func__, status);
+		//SW4-HL-Display-AvoidConsoleCrashBecauseOfPrntingTooManyErrorMsgs-00*{_20150427
+		if (printk_ratelimit())
+			pr_err("%s: status=%x\n", __func__, status);
+		//SW4-HL-Display-AvoidConsoleCrashBecauseOfPrntingTooManyErrorMsgs-00*}_20150427
 	}
 }
 

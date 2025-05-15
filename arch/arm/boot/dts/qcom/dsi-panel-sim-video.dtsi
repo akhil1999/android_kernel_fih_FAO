@@ -12,6 +12,7 @@
 
 &mdss_mdp {
 	dsi_sim_vid: qcom,mdss_dsi_sim_video {
+		fih,panel-id = <9>;
 		qcom,mdss-dsi-panel-name = "Simulator video mode dsi panel";
 		qcom,mdss-dsi-panel-controller = <&mdss_dsi0>;
 		qcom,mdss-dsi-panel-type = "dsi_video_mode";

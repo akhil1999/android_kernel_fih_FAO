@@ -858,6 +858,14 @@ static int mdss_fb_probe(struct platform_device *pdev)
 			lcd_backlight_registered = 1;
 	}
 
+	//SW4-HL-Display-FixNoBacklighWhenBootingIntoFTM-00+{_20150311
+	if(strstr(saved_command_line, "androidboot.mode=2")!=NULL)
+	{
+		mfd->unset_bl_level = 255;
+		pr_info("mfd->unset_bl_level set as 255 for ftm firstscreen backlight\n");
+	}
+	//SW4-HL-Display-FixNoBacklighWhenBootingIntoFTM-00+}_20150311
+
 	mdss_fb_create_sysfs(mfd);
 	mdss_fb_send_panel_event(mfd, MDSS_EVENT_FB_REGISTERED, fbi);
 
@@ -1043,6 +1051,23 @@ static int mdss_fb_resume_sub(struct msm_fb_data_type *mfd)
 
 	return ret;
 }
+
+int fih_fb_suspend(int enable)
+{
+	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)fbi_list[0]->par;
+	if (!mfd){
+		pr_err("%s: mfd is NULL\n", __func__);
+		return -ENODEV;
+	}
+	pr_debug("\n\ndisplay suspend enable=%d\n\n", enable);
+
+	if (enable)
+		return mdss_fb_suspend_sub(mfd);
+	else
+		return mdss_fb_resume_sub(mfd);
+}
+EXPORT_SYMBOL(fih_fb_suspend);
+
 
 #if defined(CONFIG_PM) && !defined(CONFIG_PM_SLEEP)
 static int mdss_fb_suspend(struct platform_device *pdev, pm_message_t state)
@@ -2092,6 +2117,14 @@ static int mdss_fb_register(struct msm_fb_data_type *mfd)
 		var->width = panel_info->physical_width;
 	if (panel_info->physical_height)
 		var->height = panel_info->physical_height;
+
+	//SW4-HL-Display-BringUpNT35521-00+{_20150224
+	if (panel_info->physical_width_full)
+		var->width_full = panel_info->physical_width_full;
+	if (panel_info->physical_height_full)
+		var->height_full = panel_info->physical_height_full;
+	//SW4-HL-Display-BringUpNT35521-00+}_20150224
+
 	var->xres_virtual = var->xres;
 	var->yres_virtual = panel_info->yres * mfd->fb_page;
 	var->bits_per_pixel = bpp * 8;	/* FrameBuffer color depth */

@@ -1123,6 +1123,26 @@
 			};
 		};
 
+		/* SW4-HL-Display-BringUpNT35521-00+{_20150224 */
+		pmx_i2c_6 {
+			/* CLK, DATA */
+			qcom,pins = <&gp 10>, <&gp 11>;
+			qcom,num-grp-pins = <2>;
+			qcom,pin-func = <2>;	/* SW4-HL-Display-FixRT4501Can'tControlViaI2C-00*_20150310 */
+			label = "pmx_i2c_6";
+			/* active state */
+			i2c_6_active: i2c_6_active{
+				drive-strength = <2>; /* 2 MA */
+				bias-disable; /* No PULL */
+			};
+			/* suspended state */
+			i2c_6_sleep: i2c_6_sleep {
+				drive-strength = <2>; /* 2 MA */
+				bias-disable; /* No PULL */
+			};
+		};
+		/* SW4-HL-Display-BringUpNT35521-00+}_20150224 */
+
 		pmx_rd_nfc_int{
 			qcom,pins = <&gp 21>;
 			qcom,pin-func = <0>;

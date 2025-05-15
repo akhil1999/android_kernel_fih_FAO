@@ -85,11 +85,18 @@ MODULE_DESCRIPTION("Android Composite USB Driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION("1.0");
 
+
+
 static const char longname[] = "Gadget Android";
 
 /* Default vendor and product IDs, overridden by userspace */
 #define VENDOR_ID		0x18D1
 #define PRODUCT_ID		0x0001
+
+#define BBOX_USB_TRAN_FAILED do {printk("BBox::%s: BBOX_USB_TRAN_FAILED\n", __func__); printk("BBox::UEC;3::0\n");} while(0);
+#define BBOX_USB_CONFIG_FAILED do {printk("BBox::%s: BBOX_USB_CONFIG_FAILED\n", __func__);printk("BBox::UEC;3::2\n");} while (0);
+
+
 
 #define ANDROID_DEVICE_NODE_NAME_LENGTH 11
 /* f_midi configuration */
@@ -232,6 +239,7 @@ static struct list_head android_dev_list;
 static int android_dev_count;
 static int android_bind_config(struct usb_configuration *c);
 static void android_unbind_config(struct usb_configuration *c);
+
 static struct android_dev *cdev_to_android_dev(struct usb_composite_dev *cdev);
 static struct android_configuration *alloc_android_config
 						(struct android_dev *dev);
@@ -493,6 +501,7 @@ static int android_enable(struct android_dev *dev)
 			err = usb_add_config(cdev, &conf->usb_config,
 						android_bind_config);
 			if (err < 0) {
+				BBOX_USB_CONFIG_FAILED;
 				pr_err("%s: usb_add_config failed : err: %d\n",
 						__func__, err);
 				return err;
@@ -3253,6 +3262,8 @@ static ssize_t enable_show(struct device *pdev, struct device_attribute *attr,
 	return snprintf(buf, PAGE_SIZE, "%d\n", dev->enabled);
 }
 
+
+
 static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 			    const char *buff, size_t size)
 {
@@ -3301,6 +3312,7 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 			msleep(100);
 		err = android_enable(dev);
 		if (err < 0) {
+			BBOX_USB_TRAN_FAILED;
 			pr_err("%s: android_enable failed\n", __func__);
 			dev->connected = 0;
 			dev->enabled = false;
@@ -3468,6 +3480,8 @@ static DEVICE_ATTR(state, S_IRUGO, state_show, NULL);
 static DEVICE_ATTR(remote_wakeup, S_IRUGO | S_IWUSR,
 		remote_wakeup_show, remote_wakeup_store);
 
+
+
 static struct device_attribute *android_usb_attributes[] = {
 	&dev_attr_idVendor,
 	&dev_attr_idProduct,
@@ -3588,6 +3602,7 @@ static int android_usb_unbind(struct usb_composite_dev *cdev)
 	android_cleanup_functions(dev->functions);
 	return 0;
 }
+
 
 /* HACK: android needs to override setup for accessory to work */
 static int (*composite_setup_func)(struct usb_gadget *gadget, const struct usb_ctrlrequest *c);

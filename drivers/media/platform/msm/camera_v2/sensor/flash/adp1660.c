@@ -74,16 +74,25 @@ static const struct i2c_device_id adp1660_i2c_id[] = {
 	{FLASH_NAME, (kernel_ulong_t)&fctrl},
 	{ }
 };
-
+static struct platform_driver adp1660_platform_driver;
 static int msm_flash_adp1660_i2c_probe(struct i2c_client *client,
 		const struct i2c_device_id *id)
 {
+	int rc = 0;
 	if (!id) {
 		pr_err("msm_flash_adp1660_i2c_probe: id is NULL");
 		id = adp1660_i2c_id;
 	}
 
-	return msm_flash_i2c_probe(client, id);
+	rc = msm_flash_i2c_probe(client, id);
+
+	if(rc < 0)
+	{
+		pr_err("msm_flash_adp1660_i2c_probe: msm_flash_i2c_probe fail");
+		platform_driver_unregister(&adp1660_platform_driver);
+	}
+
+	return rc;
 }
 
 static struct i2c_driver adp1660_i2c_driver = {

@@ -365,6 +365,10 @@ static ssize_t rmidev_read(struct file *filp, char __user *buf,
 	if (!tmpbuf)
 		return -ENOMEM;
 
+	tmpbuf = kzalloc(count + 1, GFP_KERNEL);
+	if (!tmpbuf)
+		return -ENOMEM;
+
 	mutex_lock(&(dev_data->file_mutex));
 
 	retval = synaptics_rmi4_reg_read(rmidev->rmi4_data,
@@ -464,6 +468,8 @@ static int rmidev_open(struct inode *inp, struct file *filp)
 
 	mutex_unlock(&(dev_data->file_mutex));
 
+	kfree(tmpbuf);
+	kfree(tmpbuf);
 	return retval;
 }
 

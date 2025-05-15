@@ -1438,9 +1438,11 @@ remove_card:
 	mmc_claim_host(host);
 err:
 	mmc_detach_bus(host);
-	if (err)
+	if (err) {
 		pr_err("%s: error %d whilst initialising SD card: rescan: %d\n",
 		       mmc_hostname(host), err, host->rescan_disable);
+		printk ("BBox::UEC; 43::3\n");
+	}
 
 	return err;
 }

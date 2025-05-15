@@ -51,6 +51,9 @@ int of_batterydata_read_data(struct device_node *container_node,
 struct device_node *of_batterydata_get_best_profile(
 		struct device_node *batterydata_container_node,
 		const char *psy_name, const char *batt_type);
+
+int of_batterydata_fih_read_battery_id(struct device_node *batterydata_container_node, int batt_id_uv);
+
 #else
 static inline int of_batterydata_read_data(struct device_node *container_node,
 				struct bms_battery_data *batt_data,

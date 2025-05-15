@@ -26,6 +26,8 @@
 #include <linux/delay.h>
 #include <linux/regulator/consumer.h>
 #include <linux/delay.h>
+#include <linux/gpio.h> //@20150305 added for FAO LED design
+#include <linux/of_gpio.h>
 
 #define WLED_MOD_EN_REG(base, n)	(base + 0x60 + n*0x10)
 #define WLED_IDAC_DLY_REG(base, n)	(WLED_MOD_EN_REG(base, n) + 0x01)
@@ -543,7 +545,7 @@ struct qpnp_led_data {
 	u16			base;
 	u8			reg;
 	u8			num_leds;
-	struct mutex		lock;
+	struct mutex		lock, lockA;//@20150305 added for FAO LED design 
 	struct wled_config_data *wled_cfg;
 	struct flash_config_data	*flash_cfg;
 	struct kpdbl_config_data	*kpdbl_cfg;
@@ -957,7 +959,7 @@ static int qpnp_mpp_set(struct qpnp_led_data *led)
 
 		val = (led->mpp_cfg->source_sel & LED_MPP_SRC_MASK) |
 			(led->mpp_cfg->mode_ctrl & LED_MPP_MODE_CTRL_MASK);
-
+                //printk(" add mpp set register mode control val => %d\n",val);
 		rc = qpnp_led_masked_write(led,
 			LED_MPP_MODE_CTRL(led->base), LED_MPP_MODE_MASK,
 			val);
@@ -1795,7 +1797,6 @@ static int qpnp_rgb_set(struct qpnp_led_data *led)
 
 	return 0;
 }
-
 static void qpnp_led_set(struct led_classdev *led_cdev,
 				enum led_brightness value)
 {
@@ -1806,7 +1807,6 @@ static void qpnp_led_set(struct led_classdev *led_cdev,
 		dev_err(&led->spmi_dev->dev, "Invalid brightness value\n");
 		return;
 	}
-
 	if (value > led->cdev.max_brightness)
 		value = led->cdev.max_brightness;
 
@@ -2201,6 +2201,7 @@ static ssize_t pwm_us_store(struct device *dev,
 	led = container_of(led_cdev, struct qpnp_led_data, cdev);
 
 	ret = kstrtou32(buf, 10, &pwm_us);
+	//printk("into pwm_us_store pwm_us => %d\n",pwm_us);
 	if (ret)
 		return ret;
 
@@ -2231,6 +2232,7 @@ static ssize_t pwm_us_store(struct device *dev,
 	pwm_free(pwm_cfg->pwm_dev);
 	ret = qpnp_pwm_init(pwm_cfg, led->spmi_dev, led->cdev.name);
 	if (ret) {
+		//printk("into pwm_us_store fail\n");
 		pwm_cfg->pwm_period_us = previous_pwm_us;
 		pwm_free(pwm_cfg->pwm_dev);
 		qpnp_pwm_init(pwm_cfg, led->spmi_dev, led->cdev.name);
@@ -2239,6 +2241,7 @@ static ssize_t pwm_us_store(struct device *dev,
 			"Failed to initialize pwm with new pwm_us value\n");
 		return ret;
 	}
+	//printk("into pwm_us_store cdev.brightness => %d\n",led->cdev.brightness);
 	qpnp_led_set(&led->cdev, led->cdev.brightness);
 	return count;
 }
@@ -2690,6 +2693,7 @@ static ssize_t blink_store(struct device *dev,
 	return count;
 }
 
+
 static DEVICE_ATTR(led_mode, 0664, NULL, led_mode_store);
 static DEVICE_ATTR(strobe, 0664, NULL, led_strobe_type_store);
 static DEVICE_ATTR(pwm_us, 0664, NULL, pwm_us_store);
@@ -2700,6 +2704,7 @@ static DEVICE_ATTR(ramp_step_ms, 0664, NULL, ramp_step_ms_store);
 static DEVICE_ATTR(lut_flags, 0664, NULL, lut_flags_store);
 static DEVICE_ATTR(duty_pcts, 0664, NULL, duty_pcts_store);
 static DEVICE_ATTR(blink, 0664, NULL, blink_store);
+
 
 static struct attribute *led_attrs[] = {
 	&dev_attr_led_mode.attr,
@@ -3853,6 +3858,64 @@ err_config_gpio:
 	return rc;
 }
 
+//@20150305 added for FAO LED design start
+/*
+static int qpnp_blink_set(struct led_classdev *led_cdev,
+	unsigned long *delay_on, unsigned long *delay_off)
+{
+	struct pwm_config_data *pwm_cfg;
+        struct qpnp_led_data *led;
+	int max_duty_pcts;
+	int BrightnessValue=0;
+
+	led = container_of(led_cdev, struct qpnp_led_data, cdev);
+
+	mutex_lock(&led->lockA);
+	pwm_cfg = led->mpp_cfg->pwm_cfg;
+	max_duty_pcts = PWM_LUT_MAX_SIZE;
+        pwm_cfg->blinking = true;
+
+	//pr_info("qpnp_blink_set...jason\n");
+
+	 if((*delay_on)&&(*delay_off))
+	 {
+		
+		pwm_free(pwm_cfg->pwm_dev);
+		pwm_cfg->pwm_period_us = (((*delay_on) + (*delay_off))*1000);
+		pwm_cfg->mode = PWM_MODE;
+
+		pwm_cfg->blinking = true;
+		pwm_cfg->use_blink= true;
+		msleep(10);
+		qpnp_pwm_init(pwm_cfg, led->spmi_dev, led->cdev.name);
+
+		//pr_info("qpnp_blink_set...jason  max_brightness = %d \n",led->cdev.max_brightness);
+
+		BrightnessValue = ((led->cdev.max_brightness)*(*delay_on))/((*delay_on) + (*delay_off));
+		
+		//pr_info("qpnp_blink_set...jason  brightness = %d \n",BrightnessValue);
+
+		led->mpp_cfg->pwm_cfg=pwm_cfg;
+		msleep(10);
+		
+		//pr_info("qpnp_blink_set...jason  default_mode = %d \n",led->mpp_cfg->pwm_cfg->default_mode);
+		//pr_info("qpnp_blink_set...jason  use_blink = %d \n",led->mpp_cfg->pwm_cfg->use_blink);
+		//pr_info("qpnp_blink_set...jason  blinking = %d \n",led->mpp_cfg->pwm_cfg->blinking);
+		//pr_info("qpnp_blink_set...jason  pwm_period_us = %d \n",led->mpp_cfg->pwm_cfg->pwm_period_us);
+		
+		mutex_unlock(&led->lockA);
+		
+		qpnp_led_set(&led->cdev, BrightnessValue);
+
+	 }
+	else
+	 {
+		mutex_unlock(&led->lockA);
+	 }
+	return 0;
+}
+*/
+//@20150305 added for FAO LED design end
 static int qpnp_leds_probe(struct spmi_device *spmi)
 {
 	struct qpnp_led_data *led, *led_array;
@@ -4018,6 +4081,8 @@ static int qpnp_leds_probe(struct spmi_device *spmi)
 		if (rc < 0)
 			goto fail_id_check;
 
+                //led->cdev.blink_set = qpnp_blink_set; //@20150305 added for FAO LED design
+                //printk(" add for qpnp_leds_probe led_classdev_register\n");
 		rc = led_classdev_register(&spmi->dev, &led->cdev);
 		if (rc) {
 			dev_err(&spmi->dev, "unable to register led %d,rc=%d\n",

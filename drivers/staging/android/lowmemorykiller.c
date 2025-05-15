@@ -46,6 +46,9 @@
 #include <linux/cpuset.h>
 #include <linux/show_mem_notifier.h>
 #include <linux/vmpressure.h>
+//20150626, @ prevent systemui to be killed, FAO-4582 +++
+#include <linux/string.h>
+//20150626, @ prevent systemui to be killed, FAO-4582 ---
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/almk.h>
@@ -464,6 +467,12 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 		p = find_lock_task_mm(tsk);
 		if (!p)
 			continue;
+		//20150626, @ prevent systemui to be killed, FAO-4582 +++
+		if (!strcmp(p->comm, "ndroid.systemui")) {
+			task_unlock(p);
+			continue;
+		}
+		//20150626, @ prevent systemui to be killed, FAO-4582 ---
 
 		oom_score_adj = p->signal->oom_score_adj;
 		if (oom_score_adj < min_score_adj) {
@@ -488,6 +497,9 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 			     p->comm, p->pid, oom_score_adj, tasksize);
 	}
 	if (selected) {
+		//20150604, @ trim lowmemorykiller logs +++
+		//mark original lowmemorykiller print function
+		/*
 		lowmem_print(1, "Killing '%s' (%d), adj %hd,\n" \
 				"   to free %ldkB on behalf of '%s' (%d) because\n" \
 				"   cache %ldkB is below limit %ldkB for oom_score_adj %hd\n" \
@@ -524,7 +536,26 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 			     global_page_state(NR_SLAB_UNRECLAIMABLE) *
 				(long)(PAGE_SIZE / 1024),
 			     sc->gfp_mask);
+		*/
 
+		lowmem_print(1, "Killing '%s' (%d), adj %hd, to free %ldkB\n" \
+				"   ofile: %ldkB, limit: %ldkB, ofree: %ldkB, Free pages: %ldkB, File cache: %ldkB, Total slab: %ldkB\n",
+			     selected->comm, selected->pid,
+			     selected_oom_score_adj,
+			     selected_tasksize * (long)(PAGE_SIZE / 1024),
+			     other_file * (long)(PAGE_SIZE / 1024),
+			     minfree * (long)(PAGE_SIZE / 1024),
+			     other_free * (long)(PAGE_SIZE / 1024),
+			     global_page_state(NR_FREE_PAGES) *
+				(long)(PAGE_SIZE / 1024),
+			     global_page_state(NR_FILE_PAGES) *
+				(long)(PAGE_SIZE / 1024),
+			     global_page_state(NR_SLAB_RECLAIMABLE) *
+				(long)(PAGE_SIZE / 1024) +
+			     global_page_state(NR_SLAB_UNRECLAIMABLE) *
+				(long)(PAGE_SIZE / 1024));
+		//20150604, @ trim lowmemorykiller logs ---
+		
 		if (lowmem_debug_level >= 2 && selected_oom_score_adj == 0) {
 			show_mem(SHOW_MEM_FILTER_NODES);
 			dump_tasks(NULL, NULL);

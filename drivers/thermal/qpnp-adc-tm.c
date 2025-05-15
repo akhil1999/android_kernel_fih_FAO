@@ -293,6 +293,8 @@ static struct qpnp_adc_tm_reverse_scale_fn adc_tm_rscale_fn[] = {
 	[SCALE_R_ABSOLUTE] = {qpnp_adc_absolute_rthr},
 	[SCALE_QRD_SKUH_RBATT_THERM] = {qpnp_adc_qrd_skuh_btm_scaler},
 	[SCALE_QRD_SKUE_RBATT_THERM] = {qpnp_adc_qrd_skue_btm_scaler},
+	[SCALE_FAO_RBATT_THERM] = {qpnp_adc_btm_fao_scaler}, // add for FAO EVB
+	[SCALE_FAO_RBATT_EVT_THERM] = {qpnp_adc_btm_fao_evt_scaler}, // add for FAO EVB
 };
 
 static int32_t qpnp_adc_tm_read_reg(struct qpnp_adc_tm_chip *chip,

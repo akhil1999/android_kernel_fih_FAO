@@ -232,7 +232,8 @@ static int vmpressure_notifier(struct notifier_block *nb,
 		return 0;
 
 	if ((pressure >= pressure_min) && (pressure < pressure_max))
-		if (!work_pending(&swap_work))
+			/* add to fix rcu_sched self-detected stall on CPU issue of monkey test case number #02049273*/
+			//schedule_work(&swap_work);
 			queue_work(system_unbound_wq, &swap_work);
 	return 0;
 }

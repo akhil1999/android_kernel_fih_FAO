@@ -39,6 +39,10 @@
 
 #include "thermal_core.h"
 
+/* Black Box */
+#define BBOX_PMIC_DIE_TEMP do {printk("BBox;%s: PMIC Die temp reached\n", __func__); printk("BBox::UEC;17::3\n");} while (0);
+#define BBOX_THERMAL_HWMON_FAIL do {printk("BBox;%s: Add hwmon failed\n", __func__); printk("BBox::UEC;22::5\n");} while (0);
+
 MODULE_AUTHOR("Zhang Rui");
 MODULE_DESCRIPTION("Generic thermal management sysfs support");
 MODULE_LICENSE("GPL v2");
@@ -714,6 +718,7 @@ static void handle_critical_trips(struct thermal_zone_device *tz,
 
 	if (trip_type == THERMAL_TRIP_CRITICAL ||
 	    trip_type == THERMAL_TRIP_CRITICAL_LOW) {
+		BBOX_PMIC_DIE_TEMP;
 		dev_emerg(&tz->device,
 			  "critical temperature reached(%d C),shutting down\n",
 			  tz->temperature / 1000);
@@ -2134,8 +2139,10 @@ struct thermal_zone_device *thermal_zone_device_register(const char *type,
 	mutex_unlock(&thermal_governor_lock);
 
 	result = thermal_add_hwmon_sysfs(tz);
-	if (result)
+	if (result){
+		BBOX_THERMAL_HWMON_FAIL;
 		goto unregister;
+	}
 
 	mutex_lock(&thermal_list_lock);
 	list_add_tail(&tz->node, &thermal_tz_list);

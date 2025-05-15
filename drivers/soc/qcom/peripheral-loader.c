@@ -381,6 +381,8 @@ static int pil_alloc_region(struct pil_priv *priv, phys_addr_t min_addr,
 	if (region == NULL) {
 		pil_err(priv->desc, "Failed to allocate relocatable region of size %zx\n",
 					size);
+		priv->region_start = 0;
+		priv->region_end = 0;
 		return -ENOMEM;
 	}
 
@@ -660,6 +662,9 @@ static int pil_parse_devicetree(struct pil_desc *desc)
 /* Synchronize request_firmware() with suspend */
 static DECLARE_RWSEM(pil_pm_rwsem);
 
+/* Add for one image */
+extern int fih_update_sku_to_cust(void);
+
 /**
  * pil_boot() - Load a peripheral image into memory and boot it
  * @desc: descriptor from pil_desc_init()
@@ -746,6 +751,12 @@ int pil_boot(struct pil_desc *desc)
 		ret = pil_load_seg(desc, seg);
 		if (ret)
 			goto err_deinit_image;
+	}
+
+	/* Add for one image */
+	if(!(strncmp(desc->name, "modem", sizeof(char)*5))) {
+		ret = fih_update_sku_to_cust();
+		pr_info("fih_update_sku_to = %d\n",ret);
 	}
 
 	ret = desc->ops->auth_and_reset(desc);

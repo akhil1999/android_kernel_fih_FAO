@@ -403,6 +403,7 @@ int of_batterydata_read_data(struct device_node *batterydata_container_node,
 	const char *battery_type = NULL;
 	int delta, best_delta, batt_id_kohm, rpull_up_kohm,
 		vadc_vdd_uv, best_id_kohm, i, rc = 0;
+	int32_t temp1, r_range = 0, resistor_division =0; // 
 
 	node = batterydata_container_node;
 	OF_PROP_READ(rpull_up_kohm, "rpull-up-kohm", node, rc, false);
@@ -412,6 +413,20 @@ int of_batterydata_read_data(struct device_node *batterydata_container_node,
 
 	batt_id_kohm = of_batterydata_convert_battery_id_kohm(batt_id_uv,
 					rpull_up_kohm, vadc_vdd_uv);
+
+	pr_info("batt_id_kohm = %d\n", batt_id_kohm);
+
+//  {{
+	OF_PROP_READ(resistor_division, "division-resistor-kohm", node, rc, true);
+	OF_PROP_READ(r_range, "division-resistor-range", node, rc, true);
+
+	if(resistor_division >0 && r_range > 0 && batt_id_kohm < (resistor_division - r_range))
+	{
+		temp1 = resistor_division*batt_id_kohm/(resistor_division - batt_id_kohm);
+		batt_id_kohm = temp1;
+		pr_info("real batt id = %d, vadc = %d \n",batt_id_kohm, batt_id_uv);
+	}
+//  }}
 	best_node = NULL;
 	best_delta = 0;
 	best_id_kohm = 0;
@@ -432,11 +447,19 @@ int of_batterydata_read_data(struct device_node *batterydata_container_node,
 				best_delta = delta;
 				best_id_kohm = batt_ids.kohm[i];
 			}
+			//  add for Battery ID {{
+			if(batt_ids.kohm[i]==0xFFFF && best_delta > 20)
+			{
+				best_node = node;
+				best_id_kohm = batt_ids.kohm[i];
+			}
+			//  add for Battery ID }}
 		}
 	}
 
 	if (best_node == NULL) {
 		pr_err("No battery data found\n");
+		printk("BBox::UEC;49::4\n");
 		return -ENODATA;
 	}
 	rc = of_property_read_string(best_node, "qcom,battery-type",
@@ -446,8 +469,27 @@ int of_batterydata_read_data(struct device_node *batterydata_container_node,
 	else
 		pr_info("%s loaded\n", best_node->name);
 
+	printk("BBox::UPD;0::%d\n", best_id_kohm);
+
 	return of_batterydata_load_battery_data(best_node,
 					best_id_kohm, batt_data);
+}
+
+int of_batterydata_fih_read_battery_id(struct device_node *batterydata_container_node, int batt_id_uv)
+{
+	struct device_node *node;
+	int batt_id_kohm, rpull_up_kohm, vadc_vdd_uv, rc = 0;
+
+	node = batterydata_container_node;
+	OF_PROP_READ(rpull_up_kohm, "rpull-up-kohm", node, rc, false);
+	OF_PROP_READ(vadc_vdd_uv, "vref-batt-therm", node, rc, false);
+	if (rc)
+		return rc;
+
+	batt_id_kohm = of_batterydata_convert_battery_id_kohm(batt_id_uv,
+					rpull_up_kohm, vadc_vdd_uv);
+
+	return batt_id_kohm;
 }
 
 MODULE_LICENSE("GPL v2");

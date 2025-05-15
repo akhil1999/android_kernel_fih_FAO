@@ -48,6 +48,20 @@ struct scsi_cmnd;
 /*
  *      SCSI opcodes
  */
+/* +++ @add for scsi command +++ */
+#define SC_ENTER_FTMMODE        	0xe0 /* restart to FTM mode */
+#define SC_READ_NV              	0xf0 /* read PID of SKU */
+#define SC_SWITCH_STATUS		0xf1 /* get ADB status */
+#define SC_SWITCH_PORT          	0xf2 /* enable ADB port */
+#define SC_DIAG_RUT	        	0xf8 /* restart to recovery mode */
+#define SC_READ_BATTERY	        	0xf9 /* read battery voltage */
+#define SC_ENABLE_ALL_PORT      	0xfd /* enable debug mode */
+#define SC_ENTER_DOWNLOADMODE   	0xff /* restart to download mode */
+#define SC_SWITCH_ROOT			0xe1 /* switch adb root */
+#define SC_MODE_CHANGE			0xe2 /* reboot */
+#define SC_ROOT_STATUS        0xe3 /*query root status*/
+#define SC_ENABLE_DIAGNOSTICS           0xe4 /* enable diagnostics port only*/
+/* --- @add for scsi command --- */
 
 #define TEST_UNIT_READY       0x00
 #define REZERO_UNIT           0x01

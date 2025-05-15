@@ -157,7 +157,19 @@
 
 #define AX_EEPROM_MAGIC		0xdeadbeef
 #define AX_EEPROM_LEN		0x200
+///@20170519 start
+/* NAMING CONSTANT DECLARATIONS */
+#define AX88772B_SIGNATURE	"AX88772B"
+#define AX88772B_DRV_NAME	"AX88772B"
 
+/* ioctl Command Definition */
+#define AX_PRIVATE		SIOCDEVPRIVATE
+
+/* private Command Definition */
+#define AX_SIGNATURE			0
+#define AX_READ_EEPROM			1
+#define AX_WRITE_EEPROM			2
+///@20170519 end
 /* This structure cannot exceed sizeof(unsigned long [5]) AKA 20 bytes */
 struct asix_data {
 	u8 multi_filter[AX_MCAST_FILTER_SIZE];
@@ -177,7 +189,15 @@ struct asix_rx_fixup_info {
 struct asix_common_private {
 	struct asix_rx_fixup_info rx_fixup_info;
 };
-
+///@20170519 start
+typedef struct _AX_IOCTL_COMMAND {
+	unsigned short	ioctl_cmd;
+	unsigned char	sig[16];
+	unsigned short *buf;
+	unsigned short size;
+	unsigned char delay;
+}AX_IOCTL_COMMAND;
+///@20170519 end
 /* ASIX specific flags */
 #define FLAG_EEPROM_MAC		(1UL << 0)  /* init device MAC from eeprom */
 

@@ -328,6 +328,21 @@ static int mdp3_dmap_config(struct mdp3_dma *dma,
 		MDP3_REG_WRITE(MDP3_REG_DMA_P_FETCH_CFG, 0x40);
 	}
 
+	//SW4-HL-Display-FTM-FixWelcomeImageCrashesIn1134-00+{_20150706
+	if(strstr(saved_command_line, "androidboot.mode=2")!=NULL)
+	{
+			MDP3_REG_WRITE(MDP3_REG_DMA_P_CONFIG, dma_p_cfg_reg);
+			MDP3_REG_WRITE(MDP3_REG_DMA_P_SIZE, dma_p_size);
+			MDP3_REG_WRITE(MDP3_REG_DMA_P_IBUF_ADDR,
+					   (u32)source_config->buf);
+			MDP3_REG_WRITE(MDP3_REG_DMA_P_IBUF_Y_STRIDE,
+					   source_config->stride);
+			MDP3_REG_WRITE(MDP3_REG_DMA_P_OUT_XY, dma_p_out_xy);
+
+			MDP3_REG_WRITE(MDP3_REG_DMA_P_FETCH_CFG, 0x40);
+	}
+	//SW4-HL-Display-FTM-FixWelcomeImageCrashesIn1134-00+}_20150706
+
 	dma->source_config = *source_config;
 	dma->output_config = *output_config;
 
@@ -387,6 +402,22 @@ static int mdp3_dmas_config(struct mdp3_dma *dma,
 
 		MDP3_REG_WRITE(MDP3_REG_SECONDARY_RD_PTR_IRQ, 0x10);
 	}
+
+	//SW4-HL-Display-FTM-FixWelcomeImageCrashesIn1134-00+{_20150706
+	if(strstr(saved_command_line, "androidboot.mode=2")!=NULL)
+	{
+			MDP3_REG_WRITE(MDP3_REG_DMA_S_CONFIG, dma_s_cfg_reg);
+			MDP3_REG_WRITE(MDP3_REG_DMA_S_SIZE, dma_s_size);
+			MDP3_REG_WRITE(MDP3_REG_DMA_S_IBUF_ADDR,
+					   (u32)source_config->buf);
+			MDP3_REG_WRITE(MDP3_REG_DMA_S_IBUF_Y_STRIDE,
+					   source_config->stride);
+			MDP3_REG_WRITE(MDP3_REG_DMA_S_OUT_XY, dma_s_out_xy);
+
+			MDP3_REG_WRITE(MDP3_REG_SECONDARY_RD_PTR_IRQ, 0x10);
+	}
+	//SW4-HL-Display-FTM-FixWelcomeImageCrashesIn1134-00+}_20150706
+
 	dma->source_config = *source_config;
 	dma->output_config = *output_config;
 

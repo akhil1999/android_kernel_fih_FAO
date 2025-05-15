@@ -16,6 +16,7 @@
 #include "msm_sd.h"
 #include "msm_actuator.h"
 #include "msm_cci.h"
+#include "../fih/fih_bbs_camera.h" //@ add BBS log
 
 DEFINE_MSM_MUTEX(msm_actuator_mutex);
 
@@ -34,6 +35,9 @@ static int32_t msm_actuator_power_down(struct msm_actuator_ctrl_t *a_ctrl);
 static struct msm_actuator msm_vcm_actuator_table;
 static struct msm_actuator msm_piezo_actuator_table;
 static struct msm_actuator msm_hvcm_actuator_table;
+
+//@ add BBS log
+extern void fih_bbs_camera_msg_by_addr(int, int);
 
 static struct i2c_driver msm_actuator_i2c_driver;
 static struct msm_actuator *actuators[] = {
@@ -871,7 +875,11 @@ static int32_t msm_actuator_config(struct msm_actuator_ctrl_t *a_ctrl,
 	case CFG_ACTUATOR_POWERDOWN:
 		rc = msm_actuator_power_down(a_ctrl);
 		if (rc < 0)
+		{
 			pr_err("msm_actuator_power_down failed %d\n", rc);
+			//@ add BBS log
+			fih_bbs_camera_msg_by_addr(a_ctrl->i2c_client.cci_client->sid, FIH_BBS_CAMERA_ERRORCODE_POWER_DW);
+		}
 		break;
 
 	case CFG_SET_POSITION:
@@ -886,7 +894,11 @@ static int32_t msm_actuator_config(struct msm_actuator_ctrl_t *a_ctrl,
 	case CFG_ACTUATOR_POWERUP:
 		rc = msm_actuator_power_up(a_ctrl);
 		if (rc < 0)
+		{
 			pr_err("Failed actuator power up%d\n", rc);
+			//@ add BBS log
+			fih_bbs_camera_msg_by_addr(a_ctrl->i2c_client.cci_client->sid, FIH_BBS_CAMERA_ERRORCODE_POWER_UP);
+		}
 		break;
 
 	default:

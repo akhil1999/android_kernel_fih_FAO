@@ -55,6 +55,9 @@ static DEFINE_SPINLOCK(rtcdev_lock);
 static unsigned long power_on_alarm;
 static struct mutex power_on_alarm_lock;
 
+#if (defined CONFIG_POWER_OFF_ALARM) && (defined CONFIG_FIH_IPO)
+extern void set_poff_sec(long secs);
+#endif
 void set_power_on_alarm(long secs, bool enable)
 {
 	int rc;
@@ -84,6 +87,9 @@ void set_power_on_alarm(long secs, bool enable)
 	rtc_tm_to_time(&rtc_time, &rtc_secs);
 	alarm_delta = wall_time.tv_sec - rtc_secs;
 	alarm_time = power_on_alarm - alarm_delta;
+#if (defined CONFIG_POWER_OFF_ALARM) && (defined CONFIG_FIH_IPO)
+	set_poff_sec(alarm_time);
+#endif
 
 	/*
 	 *Substract ALARM_DELTA from actual alarm time
@@ -105,6 +111,9 @@ void set_power_on_alarm(long secs, bool enable)
 disable_alarm:
 	power_on_alarm = 0;
 	rtc_alarm_irq_enable(rtcdev, 0);
+#if (defined CONFIG_POWER_OFF_ALARM) && (defined CONFIG_FIH_IPO)
+	set_poff_sec(0);
+#endif
 exit:
 	mutex_unlock(&power_on_alarm_lock);
 }
@@ -285,6 +294,34 @@ ktime_t alarm_expires_remaining(const struct alarm *alarm)
 {
 	struct alarm_base *base = &alarm_bases[alarm->type];
 	return ktime_sub(alarm->node.expires, base->gettime());
+}
+
+//@20150529, add FAO-12 Clear alarm Time Queue
+void alarmTimeQueueDelFtm(void)
+{
+	int i=0;
+	unsigned long flags;
+	
+	pr_info("func:%s Enter.\n",__func__);
+	for (i = 0; i < ALARM_NUMTYPE; i++) 
+	{
+        	struct alarm_base *base = &alarm_bases[i];
+                struct timerqueue_node *next;
+
+                spin_lock_irqsave(&base->lock, flags);
+                next = timerqueue_getnext(&base->timerqueue);
+				
+                spin_unlock_irqrestore(&base->lock, flags);
+                if (!next)
+                        continue;
+                spin_lock_irqsave(&base->lock, flags);
+
+				timerqueue_del(&base->timerqueue, next);
+				pr_info("timerqueue_del i=%d\n",i);
+                spin_unlock_irqrestore(&base->lock, flags);
+                
+        }
+		pr_info("func:%s End.\n",__func__);
 }
 
 #ifdef CONFIG_RTC_CLASS

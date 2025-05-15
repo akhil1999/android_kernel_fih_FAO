@@ -81,6 +81,29 @@ enum {
 	PORTRAIT = 2,
 };
 
+//SW4-HL-Display-BringUpNT35521-00+{_20150224
+enum {
+	COLOR_TEMP_WARM = 5500,
+	COLOR_TEMP_NORMAL = 6500,
+	COLOR_TEMP_COLD = 7500,
+};
+
+enum {
+	BL_FILTER_DISABLE,
+	BL_FILTER_10 = 10,
+	BL_FILTER_30 = 30,
+	BL_FILTER_50 = 50,
+	BL_FILTER_75 = 75,
+};
+
+enum {
+	CABC_OFF,
+	CABC_UI,
+	CABC_STILL,
+	CABC_MOVING,
+};
+//SW4-HL-Display-BringUpNT35521-00+}_20150224
+
 enum dsi_trigger_type {
 	DSI_CMD_MODE_DMA,
 	DSI_CMD_MODE_MDP,
@@ -90,6 +113,7 @@ enum dsi_panel_bl_ctrl {
 	BL_PWM,
 	BL_WLED,
 	BL_DCS_CMD,
+	BL_I2C,			//SW4-HL-Display-BringUpNT35521-00+_20150224
 	UNKNOWN_CTRL,
 };
 
@@ -276,6 +300,13 @@ struct panel_horizontal_idle {
 	int idle;
 };
 
+/* E1M-390 - Add error count and status for Run-In */
+struct dsi_err_container {
+	u32 dsi_ack_err_cnt;
+	u32 dsi_ack_err_status;
+};
+/* end E1M-390 */
+
 enum {
 	DSI_CTRL_0,
 	DSI_CTRL_1,
@@ -310,6 +341,8 @@ struct mdss_dsi_ctrl_pdata {
 	int (*check_read_status) (struct mdss_dsi_ctrl_pdata *pdata);
 	int (*cmdlist_commit)(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp);
 	void (*switch_mode) (struct mdss_panel_data *pdata, int mode);
+	int (*cmds_send) (struct mdss_dsi_ctrl_pdata *ctrl,	struct dsi_panel_cmds *pcmds);	//SW4-HL-Display-PowerPinControlPinAndInitCodeAPI-00+_20150519
+	int (*send_display_on_cmd) (struct mdss_dsi_ctrl_pdata *pdata);						//SW4-HL-Display-FixLCMCanNotBringUpSinceAliveCheckMethodIsNotSetGoodEnough-00+_20151218
 	struct mdss_panel_data panel_data;
 	unsigned char *ctrl_base;
 	u32 hw_rev;
@@ -342,6 +375,9 @@ struct mdss_dsi_ctrl_pdata {
 	int disp_en_gpio;
 	int bklt_en_gpio;
 	int mode_gpio;
+	int vddio_gpio;						//SW4-HL-Display-BringUpNT35521-00+_20150224
+	int avdd_gpio;						//SW4-HL-Display-BringUpNT35521-00+_20150224
+	int avee_gpio;						//SW4-HL-Display-BringUpNT35521-00+_20150224
 	int bklt_ctrl;	/* backlight ctrl */
 	bool pwm_pmi;
 	int pwm_period;
@@ -375,12 +411,65 @@ struct mdss_dsi_ctrl_pdata {
 	struct dsi_panel_cmds post_panel_on_cmds;
 	struct dsi_panel_cmds off_cmds;
 	struct dsi_panel_cmds status_cmds;
+/*
+ * Because msm8909 ESD driver do not support to read multiple registers to detect LCM IC status,
+ * we upgrade ESD driver to msm8937 version
+ */
+#if 0 //msm8909 version
 	u32 status_cmds_rlen;
 	u32 status_value;
 	u32 status_error_count;
+#else //msm8937 version
+	u32 *status_valid_params;
+	u32 *status_cmds_rlen;
+	u32 *status_value;
+	unsigned char *return_buf;
+	u32 groups; /* several alternative values to compare */
+	u32 status_error_count;
+	u32 max_status_error_count;
+#endif
 
 	struct dsi_panel_cmds video2cmd;
 	struct dsi_panel_cmds cmd2video;
+
+	//SW4-HL-Display-BringUpNT35521-00+{_20150224
+	struct dsi_panel_cmds ce_on_cmds;
+	struct dsi_panel_cmds ce_off_cmds;
+
+	struct dsi_panel_cmds ct_normal_cmds;
+	struct dsi_panel_cmds ct_warm_cmds;
+	struct dsi_panel_cmds ct_cold_cmds;
+
+	struct dsi_panel_cmds blf_10_cmds;
+	struct dsi_panel_cmds blf_30_cmds;
+	struct dsi_panel_cmds blf_50_cmds;
+	struct dsi_panel_cmds blf_75_cmds;
+
+/* E1M-4489 - Add SVI(AIE) setting */
+	struct dsi_panel_cmds svi_on_cmds;
+	struct dsi_panel_cmds svi_off_cmds;
+/* end E1M-4489 */
+	struct dsi_panel_cmds cabc_off_cmds;
+	struct dsi_panel_cmds cabc_ui_cmds;
+	struct dsi_panel_cmds cabc_still_cmds;
+	struct dsi_panel_cmds cabc_moving_cmds;
+	//SW4-HL-Display-BringUpNT35521-00+}_20150224
+
+	struct dsi_panel_cmds sleep_out_cmds;	//SW4-HL-Display-EnablePWMOutput-01+_20150611
+	struct dsi_panel_cmds display_on_cmds;	//SW4-HL-Display-EnablePWMOutput-01+_20150611
+	struct dsi_panel_cmds pre_ce_on_cmds;	//SW4-HL-Display-EnablePWMOutput-01+_20150611
+	struct dsi_panel_cmds pre_ce_off_cmds;	//SW4-HL-Display-EnablePWMOutput-01+_20150611
+	struct dsi_panel_cmds pre_cabc_off_cmds;	//SW4-HL-Display-EnablePWMOutput-01+_20150611
+	struct dsi_panel_cmds pre_cabc_ui_cmds;	//SW4-HL-Display-EnablePWMOutput-01+_20150611
+	struct dsi_panel_cmds pre_cabc_still_cmds;	//SW4-HL-Display-EnablePWMOutput-01+_20150611
+	struct dsi_panel_cmds pre_cabc_moving_cmds;	//SW4-HL-Display-EnablePWMOutput-01+_20150611
+
+	struct dsi_panel_cmds pwm_output_enable_cmds;	//SW4-HL-Display-EnablePWMOutput-00+_20150605
+	struct dsi_panel_cmds pwm_output_disable_cmds;	//SW4-HL-Display-EnablePWMOutput-00+_20150605
+
+	struct dsi_panel_cmds open_setting_cmds;	//SW4-HL-Display-EnableDisplayCheckMechanism-00+_20150714
+
+	struct dsi_panel_cmds write_reg_cmds;/* E1M-576 - Add LCM mipi reg read/write command */
 
 	struct dcs_cmd_list cmdlist;
 	struct completion dma_comp;
@@ -420,6 +509,8 @@ struct mdss_dsi_ctrl_pdata {
 	struct mdss_util_intf *mdss_util;
 
 	bool dfps_status;	/* dynamic refresh status */
+
+	struct dsi_err_container err_cont;	/* E1M-390 - Add error count and status for Run-In */
 };
 
 struct dsi_status_data {
@@ -504,6 +595,20 @@ int mdss_panel_get_dst_fmt(u32 bpp, char mipi_mode, u32 pixel_packing,
 int mdss_dsi_register_recovery_handler(struct mdss_dsi_ctrl_pdata *ctrl,
 		struct mdss_intf_recovery *recovery);
 void mdss_dsi_unregister_bl_settings(struct mdss_dsi_ctrl_pdata *ctrl_pdata);
+
+//SW4-HL-Display-BringUpNT35521-00+{_20150224
+int mdss_dsi_panel_ce_onoff(struct mdss_dsi_ctrl_pdata *ctrl_pdata, unsigned long enable);
+int mdss_dsi_panel_ct_set(struct mdss_dsi_ctrl_pdata *ctrl_pdata, unsigned long value);
+int mdss_dsi_panel_cabc_set(struct mdss_dsi_ctrl_pdata *ctrl_pdata, unsigned long value);
+//SW4-HL-Display-BringUpNT35521-00+}_20150224
+/* E1M-576 - Add SVI(AIE) setting */
+int mdss_dsi_panel_svi_set(struct mdss_dsi_ctrl_pdata *ctrl_pdata, unsigned long value);
+/* end E1M-576 */
+/* E1M-576 - Add LCM mipi reg read/write command */
+void mdss_dsi_panel_read_reg_get(char *reg_val);
+void mdss_dsi_panel_read_reg_set(struct mdss_dsi_ctrl_pdata *ctrl_pdata, unsigned int reg, unsigned int reg_len);
+void mdss_dsi_panel_write_reg_set(struct mdss_dsi_ctrl_pdata *ctrl_pdata, unsigned int len, char *data);
+/* end E1M-576 */
 
 static inline const char *__mdss_dsi_pm_name(enum dsi_pm_type module)
 {
@@ -625,4 +730,13 @@ static inline bool mdss_dsi_ulps_feature_enabled(
 	return pdata->panel_info.ulps_feature_enabled;
 }
 
+/*
+ * Because msm8909 ESD driver do not support to read multiple registers to detect LCM IC status,
+ * we upgrade ESD driver to msm8937 version
+ */
+static inline bool mdss_dsi_cmp_panel_reg(struct dsi_buf status_buf,
+	u32 *status_val, int i)
+{
+	return status_buf.data[i] == status_val[i];
+}
 #endif /* MDSS_DSI_H */

@@ -215,6 +215,9 @@ struct msm8916_asoc_mach_data {
 	int ext_pa;
 	int us_euro_gpio;
 	int spk_ext_pa_gpio;
+/* headphoneSwitch-00+{ */
+        int hp_switch_en_gpio;
+/* headphoneSwitch-00+} */
 	int mclk_freq;
 	int lb_mode;
 	u8 micbias1_cap_mode;
@@ -233,6 +236,18 @@ struct msm8916_asoc_mach_data {
 	void __iomem *vaddr_gpio_mux_pcm_ctl;
 	struct on_demand_supply wsa_switch_supply;
 	struct snd_info_entry *codec_root;
+	/*20150606, Add boost_bp_pin for boost BYPASS mode, according to page24 of 80-NP409-5B*/
+	//pinctrl for ext_boost bypass mode
+	struct pinctrl *pinctrl;
+	struct pinctrl_state *ear_ext_boost_act; //bypass mode
+	struct pinctrl_state *ear_ext_boost_sus;//shutdown mode
+
+  /* headphoneSwitch-00+{ */
+	struct pinctrl_state *ext_spk_gpio_act; //enable mode
+	struct pinctrl_state *ext_spk_gpio_sus;//disable mode
+	struct pinctrl_state *hp_switch_gpio_act; //enable mode
+	struct pinctrl_state *hp_switch_gpio_sus;//disable mode
+ /* headphoneSwitch-00+} */
 };
 
 struct msm8x16_wcd_pdata {
@@ -301,6 +316,9 @@ struct msm8x16_wcd_priv {
 	unsigned long status_mask;
 	struct wcd_imped_i_ref imped_i_ref;
 	enum wcd_mbhc_imp_det_pin imped_det_pin;
+	/* headphoneSwitch-00+{ */
+	int (*codec_headphone_switch_cb)(struct snd_soc_codec *codec, int enable);
+	/* headphoneSwitch-00+} */
 };
 
 extern int msm8x16_wcd_mclk_enable(struct snd_soc_codec *codec, int mclk_enable,
@@ -314,5 +332,11 @@ extern void msm8x16_wcd_hs_detect_exit(struct snd_soc_codec *codec);
 extern void msm8x16_wcd_spk_ext_pa_cb(
 		int (*codec_spk_ext_pa)(struct snd_soc_codec *codec,
 		int enable), struct snd_soc_codec *codec);
+		
+/* headphoneSwitch-00+{ */
+extern void msm8x16_wcd_headphone_switch(
+		int (*codec_headphone_switch)(struct snd_soc_codec *codec,
+		int enable), struct snd_soc_codec *codec);
+/* headphoneSwitch-00+} */		
 #endif
 

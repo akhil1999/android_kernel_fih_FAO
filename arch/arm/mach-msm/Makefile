@@ -71,3 +71,12 @@ obj-$(CONFIG_MSM_SMCMOD) += smcmod.o
 obj-$(CONFIG_ARCH_MSM8974) += msm_mpmctr.o
 
 obj-$(CONFIG_PERFMAP) += perfmap.o
+
+board-8909-fih-all-objs += board-8909_FIH.o
+ifdef CONFIG_FIH_PROJECT_FAO
+obj-$(CONFIG_FIH_PROJECT_FAO) += board-8909-fih-all.o
+endif
+
+# add fih code { */
+obj-y += fih/
+# add fih code } */

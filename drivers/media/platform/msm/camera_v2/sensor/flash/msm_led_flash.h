@@ -74,6 +74,11 @@ struct msm_led_flash_ctrl_t {
 int msm_flash_i2c_probe(struct i2c_client *client,
 	const struct i2c_device_id *id);
 
+int msm_flash_i2c_init_res(struct i2c_client *client, ///@20170317, add for e1m
+		const struct i2c_device_id *id);
+int msm_flash_i2c_probe_only_check_i2c(struct i2c_client *client,  ///@20170317, add for e1m
+		const struct i2c_device_id *id);
+
 int msm_flash_probe(struct platform_device *pdev, const void *data);
 
 int32_t msm_led_flash_create_v4lsubdev(struct platform_device *pdev,

@@ -229,13 +229,16 @@
 static const char fsg_string_interface[] = "Mass Storage";
 
 #include "storage_common.c"
-
+extern char *saved_command_line;
 #ifdef CONFIG_USB_CSW_HACK
 static int write_error_after_csw_sent;
 static int must_report_residue;
 static int csw_hack_sent;
 #endif
 /*-------------------------------------------------------------------------*/
+
+            
+extern struct switch_dev sw_adb_secure_dis;
 
 struct fsg_dev;
 struct fsg_common;
@@ -1523,6 +1526,7 @@ static int do_mode_select(struct fsg_common *common, struct fsg_buffhd *bh)
 
 /*-------------------------------------------------------------------------*/
 
+
 static int halt_bulk_in_endpoint(struct fsg_dev *fsg)
 {
 	int	rc;
@@ -1914,6 +1918,7 @@ static int check_command(struct fsg_common *common, int cmnd_size,
 	}
 
 	/* Check that only command bytes listed in the mask are non-zero */
+
 	common->cmnd[1] &= 0x1f;			/* Mask away the LUN */
 	for (i = 1; i < cmnd_size; ++i) {
 		if (common->cmnd[i] && !(mask & (1 << i))) {
@@ -1943,6 +1948,8 @@ static int check_command_size_in_blocks(struct fsg_common *common,
 	return check_command(common, cmnd_size, data_dir,
 			mask, needs_medium, name);
 }
+
+
 
 static int do_scsi_command(struct fsg_common *common)
 {
